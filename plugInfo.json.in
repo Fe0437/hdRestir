@@ -1,0 +1,28 @@
+{
+    "Plugins": [
+        {
+            "Info": {
+                "Types": {
+                    "HdRestirRendererPlugin": {
+                        "bases": [
+                            "HdRendererPlugin"
+                        ],
+                        "displayName": "Restir",
+                        "priority": 99
+                    },
+                    "HdRestir_ImplicitSurfaceSceneIndexPlugin" : {
+                        "bases": ["HdSceneIndexPlugin"],
+                        "loadWithRenderer" : "Restir",
+                        "priority": 0,
+                        "displayName": "Scene Index to turn implicit surfaces into prims suitable for HdRestir"
+                    }
+                }
+            },
+            "LibraryPath": "@PLUG_INFO_LIBRARY_PATH@",
+            "Name": "HdRestir",
+            "ResourcePath": "@PLUG_INFO_RESOURCE_PATH@",
+            "Root": "@PLUG_INFO_ROOT@",
+            "Type": "library"
+        }
+    ]
+}

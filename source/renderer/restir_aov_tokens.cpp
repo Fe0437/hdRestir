@@ -1,0 +1,5 @@
+#include "restir_aov_tokens.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
+TF_DEFINE_PUBLIC_TOKENS(HdRestirAovTokens, HD_RESTIR_AOV_TOKENS);

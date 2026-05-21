@@ -1,0 +1,461 @@
+#include "hd_restir_mesh.h"
+#include "hd_restir_render_param.h"
+#include "hd_restir_render_delegate.h"
+#include "pxr/imaging/hd/meshUtil.h"
+#include "pxr/imaging/hd/sceneDelegate.h"
+#include "pxr/imaging/hd/tokens.h"
+#include "pxr/imaging/hd/extComputationUtils.h"
+#include "pxr/base/vt/value.h"
+#include <iostream>
+#include <set>
+#include <algorithm>
+#include <map>
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
+HdRestirMesh::HdRestirMesh(SdfPath const& id)
+    : HdMesh(id)
+    , _visible(true)
+    , _subsetsDirty(true)
+{
+}
+
+void
+HdRestirMesh::Finalize(HdRenderParam *renderParam)
+{
+    auto* restirRenderParam{static_cast<HdRestirRenderParam*>(renderParam)};
+    restirRenderParam->GetScene()->RemoveMesh(GetId());
+}
+
+HdDirtyBits
+HdRestirMesh::GetInitialDirtyBitsMask() const
+{
+    return HdChangeTracker::AllSceneDirtyBits;
+}
+
+TfTokenVector
+HdRestirMesh::_UpdateComputedPrimvarSources(HdSceneDelegate* sceneDelegate,
+                                            HdDirtyBits dirtyBits)
+{
+    SdfPath const& id = GetId();
+    HdExtComputationPrimvarDescriptorVector compPrimvarsToUpdate;
+    for (size_t i=0; i < HdInterpolationCount; ++i) {
+        HdInterpolation interp = static_cast<HdInterpolation>(i);
+        HdExtComputationPrimvarDescriptorVector descriptors = 
+            sceneDelegate->GetExtComputationPrimvarDescriptors(id, interp);
+
+        for (auto const& pv: descriptors) {
+            bool dirty = HdChangeTracker::IsPrimvarDirty(dirtyBits, id, pv.name);
+            
+            // Special case: if DirtyPoints is set, any computed 'points' is dirty
+            if (pv.name == HdTokens->points && (dirtyBits & HdChangeTracker::DirtyPoints)) {
+                dirty = true;
+            }
+
+            if (dirty || _points.empty()) {
+                compPrimvarsToUpdate.emplace_back(pv);
+            }
+        }
+    }
+
+    if (compPrimvarsToUpdate.empty()) {
+        return TfTokenVector();
+    }
+    
+    HdExtComputationUtils::ValueStore valueStore;
+    try {
+        valueStore = HdExtComputationUtils::GetComputedPrimvarValues(compPrimvarsToUpdate, sceneDelegate);
+    } catch (...) {
+        HdRestir_LOG << "[Restir] ERROR: GetComputedPrimvarValues threw an exception for " << id.GetText() << std::endl;
+    }
+
+    TfTokenVector compPrimvarNames;
+    for (auto const& compPrimvar : compPrimvarsToUpdate) {
+        auto it = valueStore.find(compPrimvar.name);
+        if (it == valueStore.end() || it->second.IsEmpty()) {
+            it = valueStore.find(compPrimvar.sourceComputationOutputName);
+        }
+
+        VtValue val;
+        if (it != valueStore.end() && !it->second.IsEmpty()) {
+            val = it->second;
+        } else {
+            // Fallback: try direct Get()
+            try {
+                val = sceneDelegate->Get(id, compPrimvar.name);
+                if (val.IsEmpty() && compPrimvar.name != compPrimvar.sourceComputationOutputName) {
+                    val = sceneDelegate->Get(id, compPrimvar.sourceComputationOutputName);
+                }
+            } catch (...) {
+                // Ignore fallback errors
+            }
+        }
+
+        if (val.IsEmpty()) {
+            HdRestir_LOG << "[Restir] Warning: Failed to find computed value for PV " << compPrimvar.name.GetText() 
+                      << " (output: " << compPrimvar.sourceComputationOutputName.GetText() 
+                      << " comp: " << compPrimvar.sourceComputationId.GetText() << ")" << std::endl;
+            continue;
+        }
+        
+        compPrimvarNames.emplace_back(compPrimvar.name);
+
+        if (compPrimvar.name == HdTokens->points) {
+            if (val.IsHolding<VtVec3fArray>()) {
+                _points = val.UncheckedGet<VtVec3fArray>();
+                _subsetsDirty = true;
+            } else if (val.IsHolding<VtVec3dArray>()) {
+                const VtVec3dArray& pointsd = val.UncheckedGet<VtVec3dArray>();
+                _points.resize(pointsd.size());
+                for (size_t j = 0; j < pointsd.size(); ++j) _points[j] = GfVec3f(pointsd[j]);
+                _subsetsDirty = true;
+            }
+        } else if (compPrimvar.name == HdTokens->displayColor) {
+            if (val.IsHolding<VtVec3fArray>()) {
+                _colors = val.UncheckedGet<VtVec3fArray>();
+            }
+        }
+    }
+
+    return compPrimvarNames;
+}
+
+void
+HdRestirMesh::Sync(HdSceneDelegate* sceneDelegate,
+                   HdRenderParam*   renderParam,
+                   HdDirtyBits*     dirtyBits,
+                   TfToken const   &reprToken)
+{
+    const SdfPath& id = GetId();
+    auto* restirRenderParam{static_cast<HdRestirRenderParam*>(renderParam)};
+    std::lock_guard<std::recursive_mutex> lock{restirRenderParam->GetSceneLock()};
+    restirRenderParam->AcquireSceneForEdit();
+
+    _instancerId = sceneDelegate->GetInstancerId(id);
+    
+    if (HdChangeTracker::IsVisibilityDirty(*dirtyBits, id)) {
+        _visible = sceneDelegate->GetVisible(id);
+    }
+    
+    if (HdChangeTracker::IsTransformDirty(*dirtyBits, id)) {
+        _transform = GfMatrix4f(sceneDelegate->GetTransform(id));
+    }
+
+    // --- COMPUTED PRIMVARS ---
+    TfTokenVector computedNames = _UpdateComputedPrimvarSources(sceneDelegate, *dirtyBits);
+    bool pointsUpdatedByComputation = false;
+    bool colorsUpdatedByComputation = false;
+    for (const auto& name : computedNames) {
+        if (name == HdTokens->points) pointsUpdatedByComputation = true;
+        if (name == HdTokens->displayColor) colorsUpdatedByComputation = true;
+    }
+
+    // --- POINTS UPDATING ---
+    bool pointsDirty = (*dirtyBits & HdChangeTracker::DirtyPoints) || 
+                       HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, HdTokens->points) ||
+                       _points.empty();
+
+    if (pointsDirty) {
+        bool pointsActuallyUpdated = pointsUpdatedByComputation;
+
+        if (!pointsActuallyUpdated) {
+            VtValue val = sceneDelegate->Get(id, HdTokens->points);
+            if (!val.IsEmpty()) {
+                if (val.IsHolding<VtVec3fArray>()) {
+                    _points = val.UncheckedGet<VtVec3fArray>();
+                    pointsActuallyUpdated = true;
+                } else if (val.IsHolding<VtVec3dArray>()) {
+                    const auto& arr = val.UncheckedGet<VtVec3dArray>();
+                    _points.resize(arr.size());
+                    for (size_t j = 0; j < arr.size(); ++j) _points[j] = GfVec3f(arr[j]);
+                    pointsActuallyUpdated = true;
+                }
+            }
+        }
+
+        if (pointsActuallyUpdated) {
+            _subsetsDirty = true;
+        }
+    }
+
+    // --- COLOR UPDATING ---
+    TfToken colorToken = HdTokens->displayColor;
+    if (HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, colorToken)) {
+        if (!colorsUpdatedByComputation) {
+            HdInterpolation colorInterp = HdInterpolationVertex;
+            for (int i = 0; i < HdInterpolationCount; ++i) {
+                HdPrimvarDescriptorVector pvs = sceneDelegate->GetPrimvarDescriptors(id, (HdInterpolation)i);
+                for (const auto& pv : pvs) {
+                    if (pv.name == colorToken) {
+                        colorInterp = pv.interpolation;
+                        break;
+                    }
+                }
+            }
+
+            VtIntArray colorIndices;
+            VtValue val = sceneDelegate->GetIndexedPrimvar(id, colorToken, &colorIndices);
+            if (val.IsEmpty()) val = sceneDelegate->Get(id, colorToken);
+
+            if (!val.IsEmpty() && (val.IsHolding<VtVec3fArray>() || val.IsHolding<VtVec4fArray>())) {
+                VtVec3fArray colors;
+                if (val.IsHolding<VtVec3fArray>()) {
+                    colors = val.UncheckedGet<VtVec3fArray>();
+                } else {
+                    const auto& c4 = val.UncheckedGet<VtVec4fArray>();
+                    colors.resize(c4.size());
+                    for (size_t j = 0; j < c4.size(); ++j) colors[j] = GfVec3f(c4[j][0], c4[j][1], c4[j][2]);
+                }
+
+                if (!colorIndices.empty()) {
+                    VtVec3fArray flattened(colorIndices.size());
+                    for (size_t i = 0; i < colorIndices.size(); ++i) {
+                        flattened[i] = colors[colorIndices[i]];
+                    }
+                    colors = flattened;
+                }
+
+                if (colorInterp == HdInterpolationFaceVarying) {
+                    HdMeshTopology topology = GetMeshTopology(sceneDelegate);
+                    HdMeshUtil meshUtil(&topology, id);
+                    VtValue triangulated;
+                    const auto triangulationResult{meshUtil.ComputeTriangulatedFaceVaryingPrimvar(
+                        colors.data(), static_cast<int>(colors.size()), HdTypeFloatVec3, &triangulated)};
+                    if (triangulationResult == HdMeshComputationResult::Success &&
+                        !triangulated.IsEmpty() && triangulated.IsHolding<VtVec3fArray>()) {
+                        _colors = triangulated.Get<VtVec3fArray>();
+                    } else {
+                        _colors = colors;
+                    }
+                } else {
+                    _colors = colors;
+                }
+                _subsetsDirty = true;
+            }
+        }
+    }
+
+    // --- UV UPDATING ---
+    TfToken stToken("st");
+    TfToken uvToken("uv");
+    TfToken activeStToken = stToken;
+    bool stDirty = HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, stToken);
+    bool uvDirty = HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, uvToken);
+
+    if (stDirty || uvDirty || _uvs.empty()) {
+        HdInterpolation stInterp = HdInterpolationVertex;
+        bool found = false;
+        for (int i = 0; i < HdInterpolationCount; ++i) {
+            HdPrimvarDescriptorVector pvs = sceneDelegate->GetPrimvarDescriptors(id, (HdInterpolation)i);
+            for (const auto& pv : pvs) {
+                if (pv.name == stToken || pv.name == uvToken) {
+                    activeStToken = pv.name;
+                    stInterp = pv.interpolation;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) break;
+        }
+
+        VtIntArray stIndices;
+        VtValue val = sceneDelegate->GetIndexedPrimvar(id, activeStToken, &stIndices);
+        if (val.IsEmpty()) val = sceneDelegate->Get(id, activeStToken);
+
+        if (!val.IsEmpty() && val.IsHolding<VtVec2fArray>()) {
+            VtVec2fArray uvs = val.UncheckedGet<VtVec2fArray>();
+            if (!stIndices.empty()) {
+                VtVec2fArray flattened(stIndices.size());
+                for (size_t i = 0; i < stIndices.size(); ++i) {
+                    flattened[i] = uvs[stIndices[i]];
+                }
+                uvs = flattened;
+            }
+
+            if (stInterp == HdInterpolationFaceVarying) {
+                HdMeshTopology topology = GetMeshTopology(sceneDelegate);
+                HdMeshUtil meshUtil(&topology, id);
+                VtValue triangulated;
+                const auto triangulationResult{meshUtil.ComputeTriangulatedFaceVaryingPrimvar(
+                    uvs.data(), static_cast<int>(uvs.size()), HdTypeFloatVec2, &triangulated)};
+                if (triangulationResult == HdMeshComputationResult::Success &&
+                    !triangulated.IsEmpty() && triangulated.IsHolding<VtVec2fArray>()) {
+                    _uvs = triangulated.Get<VtVec2fArray>();
+                } else {
+                    _uvs = uvs;
+                }
+            } else {
+                _uvs = uvs;
+            }
+            _subsetsDirty = true;
+        }
+    }
+
+    // --- NORMAL UPDATING ---
+    TfToken normalToken = HdTokens->normals;
+    bool normalsDirty = HdChangeTracker::IsPrimvarDirty(*dirtyBits, id, normalToken) || _normals.empty();
+    if (normalsDirty) {
+        HdInterpolation normalInterp = HdInterpolationVertex;
+        bool found = false;
+        for (int i = 0; i < HdInterpolationCount; ++i) {
+            HdPrimvarDescriptorVector pvs = sceneDelegate->GetPrimvarDescriptors(id, (HdInterpolation)i);
+            for (const auto& pv : pvs) {
+                if (pv.name == normalToken) {
+                    normalInterp = pv.interpolation;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) break;
+        }
+
+        VtIntArray normalIndices;
+        VtValue val = sceneDelegate->GetIndexedPrimvar(id, normalToken, &normalIndices);
+        if (val.IsEmpty()) val = sceneDelegate->Get(id, normalToken);
+
+        if (!val.IsEmpty() && val.IsHolding<VtVec3fArray>()) {
+            VtVec3fArray normals = val.UncheckedGet<VtVec3fArray>();
+            if (!normalIndices.empty()) {
+                VtVec3fArray flattened(normalIndices.size());
+                for (size_t i = 0; i < normalIndices.size(); ++i) {
+                    flattened[i] = normals[normalIndices[i]];
+                }
+                normals = flattened;
+            }
+
+            if (normalInterp == HdInterpolationFaceVarying) {
+                HdMeshTopology topology = GetMeshTopology(sceneDelegate);
+                HdMeshUtil meshUtil(&topology, id);
+                VtValue triangulated;
+                const auto triangulationResult{meshUtil.ComputeTriangulatedFaceVaryingPrimvar(
+                    normals.data(), static_cast<int>(normals.size()), HdTypeFloatVec3, &triangulated)};
+                if (triangulationResult == HdMeshComputationResult::Success &&
+                    !triangulated.IsEmpty() && triangulated.IsHolding<VtVec3fArray>()) {
+                    _normals = triangulated.Get<VtVec3fArray>();
+                } else {
+                    _normals = normals;
+                }
+            } else {
+                _normals = normals;
+            }
+            _subsetsDirty = true;
+        }
+    }
+
+    if (HdChangeTracker::IsTopologyDirty(*dirtyBits, id) || 
+        (*dirtyBits & HdChangeTracker::DirtyMaterialId) ||
+        _subsetsDirty) {
+        
+        SdfPath defaultMaterialId = sceneDelegate->GetMaterialId(id);
+        HdMeshTopology topology = GetMeshTopology(sceneDelegate);
+        HdMeshUtil meshUtil(&topology, id);
+        
+        VtVec3iArray allTriangulatedIndices;
+        VtIntArray trianglePrimitiveParams;
+        meshUtil.ComputeTriangleIndices(&allTriangulatedIndices, &trianglePrimitiveParams);
+        
+        // Map original faces to material IDs (GeomSubsets)
+        HdGeomSubsets geomSubsets = topology.GetGeomSubsets();
+
+        std::vector<SdfPath> faceMaterialPaths(topology.GetNumFaces(), defaultMaterialId);
+        
+        HdRestir_LOG << "[Restir] Mesh " << id.GetText() << " splitting into subsets (Faces: " << topology.GetNumFaces() << "):" << std::endl;
+        for (const auto& subset : geomSubsets) {
+            HdRestir_LOG << "[Restir]   Subset " << subset.id.GetText() << " | Material: " << subset.materialId.GetText() << " | Face count: " << subset.indices.size() << std::endl;
+            for (int faceIdx : subset.indices) {
+                if (faceIdx >= 0 && (size_t)faceIdx < faceMaterialPaths.size()) {
+                    faceMaterialPaths[faceIdx] = subset.materialId;
+                }
+            }
+        }
+        
+        // Group everything
+        struct GroupedData {
+            VtVec3iArray indices;
+            VtVec3fArray colors;
+            VtVec2fArray uvs;
+            VtVec3fArray normals;
+        };
+        std::map<SdfPath, GroupedData> grouped;
+
+        for (size_t i = 0; i < allTriangulatedIndices.size(); ++i) {
+            // Correct face index decoding: 
+            // - Shift right by 2 is typical for subdivided meshes where faceIndex is in high bits
+            // - Masking with 0x0FFFFFFF is used for non-shifted face indices
+            int faceIdx = trianglePrimitiveParams[i] >> 2;
+            if (faceIdx < 0 || (size_t)faceIdx >= faceMaterialPaths.size()) {
+                faceIdx = trianglePrimitiveParams[i] & 0x0FFFFFFF;
+            }
+
+            SdfPath matPath = defaultMaterialId;
+            if (faceIdx >= 0 && (size_t)faceIdx < faceMaterialPaths.size()) {
+                matPath = faceMaterialPaths[faceIdx];
+            }
+            
+            GroupedData& g = grouped[matPath];
+            g.indices.push_back(allTriangulatedIndices[i]);
+            
+            // Slice face-varying primvars
+            if (_colors.size() == allTriangulatedIndices.size() * 3) {
+                g.colors.push_back(_colors[i * 3 + 0]);
+                g.colors.push_back(_colors[i * 3 + 1]);
+                g.colors.push_back(_colors[i * 3 + 2]);
+            }
+            if (_uvs.size() == allTriangulatedIndices.size() * 3) {
+                g.uvs.push_back(_uvs[i * 3 + 0]);
+                g.uvs.push_back(_uvs[i * 3 + 1]);
+                g.uvs.push_back(_uvs[i * 3 + 2]);
+            }
+            if (_normals.size() == allTriangulatedIndices.size() * 3) {
+                g.normals.push_back(_normals[i * 3 + 0]);
+                g.normals.push_back(_normals[i * 3 + 1]);
+                g.normals.push_back(_normals[i * 3 + 2]);
+            } else if (_normals.size() == _points.size()) {
+                g.normals.push_back(_normals[allTriangulatedIndices[i][0]]);
+                g.normals.push_back(_normals[allTriangulatedIndices[i][1]]);
+                g.normals.push_back(_normals[allTriangulatedIndices[i][2]]);
+            }
+        }
+
+        // Rebuild subsets
+        _subsets.clear();
+        for (auto& pair : grouped) {
+            Subset subset;
+            subset.materialId = pair.first;
+            subset.indices = std::move(pair.second.indices);
+            
+            HdRestir_LOG << "[Restir]   Created sub-mesh from " << id.GetText() << " for material " << subset.materialId.GetText() << " with " << subset.indices.size() << " triangles." << std::endl;
+
+            VtVec3fArray subsetColors = pair.second.colors.empty() ? _colors : pair.second.colors;
+            VtVec2fArray subsetUvs = pair.second.uvs.empty() ? _uvs : pair.second.uvs;
+            VtVec3fArray subsetNormals = pair.second.normals.empty() ? _normals : pair.second.normals;
+
+            if (!subset.indices.empty() && !_points.empty()) {
+                subset.bvh.Build(_points, subset.indices, subsetUvs, subsetNormals, subsetColors, std::vector<int>());
+                
+                subset.range.SetEmpty();
+                for (const auto& tri : subset.indices) {
+                    subset.range.ExtendBy(_points[tri[0]]);
+                    subset.range.ExtendBy(_points[tri[1]]);
+                    subset.range.ExtendBy(_points[tri[2]]);
+                }
+            }
+            _subsets.push_back(std::move(subset));
+        }
+        _subsetsDirty = false;
+    }
+
+    restirRenderParam->GetScene()->AddMesh(id, this);
+    *dirtyBits &= ~HdChangeTracker::AllSceneDirtyBits;
+}
+
+void
+HdRestirMesh::_InitRepr(TfToken const &reprToken, HdDirtyBits *dirtyBits)
+{
+}
+
+HdDirtyBits
+HdRestirMesh::_PropagateDirtyBits(HdDirtyBits bits) const
+{
+    return bits;
+}

@@ -1,0 +1,14 @@
+{
+  "name": "hd-restir",
+  "version": "0.1.0",
+  "dependencies": [
+    "ms-gsl",
+    "tbb",
+    {
+      "name": "usd",
+      "features": [
+        "imaging"
+      ]
+    }
+  ]
+}

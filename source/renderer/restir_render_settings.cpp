@@ -1,0 +1,5 @@
+#include "restir_render_settings.h"
+
+PXR_NAMESPACE_USING_DIRECTIVE
+
+TF_DEFINE_PUBLIC_TOKENS(HdRestirRenderSettingsTokens, HD_RESTIR_RENDER_SETTINGS_TOKENS);
