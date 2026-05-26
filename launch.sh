@@ -34,4 +34,4 @@ ensure_just() {
 
 ensure_just
 
-exec just --justfile "$PROJ_ROOT/Justfile" --working-directory "$PROJ_ROOT" launch "${1:-scene.usda}"
+exec just --justfile "$PROJ_ROOT/Justfile" --working-directory "$PROJ_ROOT" launch "${1:-example_scenes/scene.usda}"

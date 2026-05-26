@@ -78,11 +78,12 @@ void HdRestirLight::Sync(HdSceneDelegate *sceneDelegate,
     }
 
     auto* restirRenderParam{static_cast<HdRestirRenderParam*>(renderParam)};
-    restirRenderParam->AcquireSceneForEdit();
-    restirRenderParam->GetScene()->SetLightFactoryInput(id, Restir::LightFactoryInput{
-        .Id = id,
-        .Type = GetLightType(),
-        .Params = GetParams(),
+    restirRenderParam->EditScene([&](Restir::Scene& scene) {
+        scene.SetLightFactoryInput(id, Restir::LightFactoryInput{
+            .Id = id,
+            .Type = GetLightType(),
+            .Params = GetParams(),
+        });
     });
 
     *dirtyBits &= ~HdLight::AllDirty;

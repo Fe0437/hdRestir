@@ -14,7 +14,7 @@ public:
 
     [[nodiscard]] BSDFClosure GetClosure(const HitRecord& hit) const override;
     [[nodiscard]] std::unique_ptr<IBSDF> CreateBSDF(BSDFClosure&& c) const override { return std::make_unique<GGXBsdf>(std::move(c)); }
-    [[nodiscard]] BounceSample SampleBounce(
+    [[nodiscard]] BounceSampleResult SampleBounce(
         const ShadingPoint& surface, const BounceConfig& config, BounceState& state, Rng& rng) const override;
 };
 

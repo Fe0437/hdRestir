@@ -1,47 +1,41 @@
 #pragma once
 
-#include "render_pass.h"
-#include "output_names.h"
+#include "lighting_core/uniform_light_sampler.h"
+#include "mis_direct_light_integrator.h"
+#include "path_integrator.h"
+#include "integration_pass.h"
 
-#include <vector>
+#include <memory>
 
 namespace Restir {
 
-struct PathTracePassSettings {
-    bool EnableSubsurface{true};
-    int MaxReflectionBounces{8};
-    int MaxRefractionBounces{8};
-    bool RenderIblBackground{true};
-};
-
-class PathTracePass final : public RenderPass {
+class PathTracePass final : public IntegrationPass {
 public:
     explicit PathTracePass(PathTracePassSettings settings = {}, int maxDepth = 32)
-        : RenderPass{"PathTracePass"}
-        , _settings{settings}
-        , _maxDepth{maxDepth}
+        : PathTracePass{NotNullUniquePtr<PathIntegrator>{
+              std::make_unique<PathIntegrator>(
+                  [](const IScene& scene) {
+                      return NotNullUniquePtr<IDirectLightIntegrator>{
+                          std::make_unique<MisDirectLightIntegrator>(
+                              NotNullUniquePtr<ILightSampler>{
+                                  std::make_unique<UniformLightSampler>(scene.GetLights())})};
+                  },
+                  settings,
+                  maxDepth)}}
     {}
 
-    [[nodiscard]] static std::vector<std::string> StaticInputs()
+    void SetSettings(PathTracePassSettings settings)
     {
-        return {std::string{kGBufferOutputName}};
+        _pathIntegrator->SetSettings(std::move(settings));
     }
-
-    [[nodiscard]] static std::vector<std::string> StaticOutputs()
-    {
-        return {std::string{kColorOutputName}};
-    }
-
-    [[nodiscard]] std::vector<std::string> Inputs() const override { return {std::string{kGBufferOutputName}}; }
-    [[nodiscard]] std::vector<std::string> Outputs() const override { return {std::string{kColorOutputName}}; }
-
-    void Execute(RenderContext& ctx) override;
-
-    void SetSettings(PathTracePassSettings settings) { _settings = settings; }
 
 private:
-    PathTracePassSettings _settings{};
-    int _maxDepth{32};
+    explicit PathTracePass(NotNullUniquePtr<PathIntegrator>&& integrator)
+        : IntegrationPass{"PathTracePass", std::move(integrator)}
+        , _pathIntegrator{static_cast<PathIntegrator*>(_integrator.get())}
+    {}
+
+    PathIntegrator* _pathIntegrator;
 };
 
 }  // namespace Restir

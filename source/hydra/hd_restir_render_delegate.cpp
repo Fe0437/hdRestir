@@ -77,7 +77,7 @@ HdRestirRenderDelegate::_Initialize()
 {
     _sceneVersion.store(0);
     _renderParam = std::make_shared<HdRestirRenderParam>(
-        &_renderThread, &_renderer, &_scene, &_sceneVersion);
+        &_scene, &_sceneVersion);
 
     _renderThread.SetRenderCallback(
         std::bind(_RenderCallback, &_renderer, &_renderThread, this));
@@ -305,6 +305,9 @@ HdRestirRenderDelegate::GetRenderSettingDescriptors() const
 {
     HdRenderSettingDescriptorList list;
     for (const auto& spec : Restir::Renderer::GetRenderOptionSpecs()) {
+        if (spec.Hidden) {
+            continue;
+        }
         list.push_back(HdRenderSettingDescriptor{std::string{spec.Label}, spec.Token, spec.DefaultValue});
     }
     return list;

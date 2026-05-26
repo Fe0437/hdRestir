@@ -21,3 +21,7 @@ vcpkg
 __pycache__
 images/extra_scene_references/
 .DS_Store
+.cache
+exploratory_tests/**/*.png
+exploratory_tests/**/*.log
+exploratory_tests/**/*.html

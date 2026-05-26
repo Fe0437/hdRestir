@@ -227,12 +227,14 @@ void Scene::BuildRenderState(const SceneBuildRenderStateConfig& config, const IR
     }
 }
 
-const IMaterial* Scene::GetMaterial(int matId) const
+const IMaterial& Scene::GetMaterial(int matId) const
 {
-    if (!_renderState.has_value()) return nullptr;
+    if (!_renderState.has_value()) return DefaultMaterial::Instance();
     const auto& instances{_renderState->Instances};
-    if (matId < 0 || matId >= static_cast<int>(instances.size())) return nullptr;
-    return instances[matId].shader;
+    if (matId < 0 || matId >= static_cast<int>(instances.size())) return DefaultMaterial::Instance();
+    return instances[matId].shader != nullptr
+        ? *instances[matId].shader
+        : DefaultMaterial::Instance();
 }
 
 const IEnvironment* Scene::GetEnvironment() const
@@ -254,6 +256,30 @@ const ILight* Scene::GetSkyLight() const noexcept
 const ImageTextureSamplerFactory* Scene::GetTextureSamplerFactory() const
 {
     return _renderState.has_value() ? _renderState->TextureSamplerFactory.get() : nullptr;
+}
+
+const ILight* Scene::GetLightAtHit(const HitRecord& hit) const
+{
+    if (!_renderState.has_value()) {
+        return nullptr;
+    }
+
+    const auto& state{*_renderState};
+    if (hit.PrimId < 0 || hit.PrimId >= static_cast<int>(state.Instances.size())) {
+        return nullptr;
+    }
+
+    const MeshInstance& instance{state.Instances[hit.PrimId]};
+    if (instance.mesh == nullptr) {
+        return nullptr;
+    }
+
+    const auto lightIt{state.LightMap.find(instance.mesh->GetId())};
+    if (lightIt == state.LightMap.end()) {
+        return nullptr;
+    }
+
+    return lightIt->second.get();
 }
 
 const PhysicalSky* Scene::GetPhysicalSky() const noexcept

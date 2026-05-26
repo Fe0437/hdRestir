@@ -1,6 +1,7 @@
 #pragma once
 
 #include "light_params.h"
+#include "math/pdf.h"
 #include "rng.h"
 
 #include "pxr/base/gf/vec3f.h"
@@ -14,8 +15,9 @@ namespace Restir {
 struct LightSample {
     GfVec3f Dir{};
     GfVec3f Color{};
+    GfVec3f LightNormal{};   // outward normal of the light surface at the sampled point
     float   Dist{1e30f};
-    float   Pdf{1.0f};
+    Pdf     Pdf{};           // combined (selection × sample) pdf in the light's native space
 };
 
 class ILight {
@@ -34,6 +36,12 @@ public:
 
     [[nodiscard]] virtual std::optional<LightSample> SampleLight(
         const GfVec3f& hitPos, Rng& rng) const = 0;
+
+    // Cross-evaluation: area Pdf that SampleLight would assign to the surface point hit
+    // by (hitPos, dir) at distance dist with outward normal lightNormal.
+    // Returns {0, Area} for delta lights or unreachable directions.
+    [[nodiscard]] virtual Pdf EvalPdf(const GfVec3f& hitPos, const GfVec3f& dir,
+                                      float dist, const GfVec3f& lightNormal) const = 0;
 };
 
 }  // namespace Restir

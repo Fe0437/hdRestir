@@ -28,10 +28,12 @@ public:
     // IEnvironment
     [[nodiscard]] GfVec3f Sample(const GfVec3f& dir) const override;
 
-    // ILight — sun is a delta light, MIS weight = 1, Pdf = 1.
+    // ILight — sun is a delta light, MIS weight = 1.
     [[nodiscard]] bool IsDeltaLight() const noexcept override { return true; }
     [[nodiscard]] std::optional<LightSample> SampleLight(
         const GfVec3f& hitPos, Rng& rng) const override;
+    [[nodiscard]] Pdf EvalPdf(const GfVec3f& hitPos, const GfVec3f& dir,
+                              float dist, const GfVec3f& lightNormal) const override;
 
     [[nodiscard]] GfVec3f                    GetSunTransmittance() const;
     [[nodiscard]] std::optional<SunSample>   SampleDirect()        const;

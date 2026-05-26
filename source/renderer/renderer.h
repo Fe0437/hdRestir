@@ -34,8 +34,9 @@ class Renderer final {
 public:
     struct RenderOptionSpec {
         std::string_view Label;
-        TfToken Token;
-        VtValue DefaultValue;
+        TfToken          Token;
+        VtValue          DefaultValue;
+        bool             Hidden{false};
     };
 
     Renderer();

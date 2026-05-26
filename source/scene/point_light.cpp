@@ -18,7 +18,6 @@ std::optional<LightSample> PointLight::SampleLight(const GfVec3f& hitPos, Rng& /
     GfVec3f toLight = lPos - hitPos;
     float lightDist = toLight.GetLength();
     GfVec3f lDir    = toLight / lightDist;
-    float lightPdf  = lightDist * lightDist;
     GfVec3f lColor  = _params.Color * _params.EffectiveIntensity();
 
     float coneAngle = _params.ShapingConeAngle;
@@ -44,7 +43,13 @@ std::optional<LightSample> PointLight::SampleLight(const GfVec3f& hitPos, Rng& /
     }
 
     if (lColor[0] <= 0.0f && lColor[1] <= 0.0f && lColor[2] <= 0.0f) return std::nullopt;
-    return LightSample{lDir, lColor, lightDist, lightPdf};
+    return LightSample{lDir, lColor, -lDir, lightDist, Pdf{1.f, PdfSpace::SolidAngle}};
+}
+
+Pdf PointLight::EvalPdf(const GfVec3f& /*hitPos*/, const GfVec3f& /*dir*/,
+                         float /*dist*/, const GfVec3f& /*lightNormal*/) const
+{
+    return {0.f, PdfSpace::Area};
 }
 
 }  // namespace Restir

@@ -5,6 +5,8 @@
 #include "rng.h"
 #include "upscale_pass.h"
 
+#include "default_material.h"
+
 #include <map>
 #include <mutex>
 #include <cassert>
@@ -73,10 +75,11 @@ class StubScene final : public Restir::IScene {
 public:
     std::recursive_mutex& GetSceneLock() override { return _sceneLock; }
     void BuildRenderState(const Restir::SceneBuildRenderStateConfig&, const Restir::IRenderJob&) override {}
-    [[nodiscard]] const Restir::IMaterial*            GetMaterial(int)    const override { return nullptr; }
+    [[nodiscard]] const Restir::IMaterial&            GetMaterial(int)    const override { return Restir::DefaultMaterial::Instance(); }
     [[nodiscard]] const Restir::IEnvironment*         GetEnvironment()    const override { return nullptr; }
     [[nodiscard]] gsl::span<Restir::ILight* const>    GetLights()         const override { return {}; }
     [[nodiscard]] const Restir::ILight*               GetSkyLight()       const noexcept override { return nullptr; }
+    [[nodiscard]] const Restir::ILight*               GetLightAtHit(const Restir::HitRecord&) const override { return nullptr; }
     [[nodiscard]] std::optional<Restir::HitRecord>    IntersectScene(const GfVec3f&, const GfVec3f&) const override { return std::nullopt; }
     [[nodiscard]] const Restir::ImageTextureSamplerFactory* GetTextureSamplerFactory() const override { return nullptr; }
 

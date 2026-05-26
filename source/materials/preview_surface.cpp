@@ -112,7 +112,7 @@ BSDFClosure PreviewSurfaceMaterial::GetClosure(const HitRecord& hit) const {
     };
 }
 
-BounceSample PreviewSurfaceMaterial::SampleBounce(
+BounceSampleResult PreviewSurfaceMaterial::SampleBounce(
     const ShadingPoint& surface, const BounceConfig& config, BounceState& state, Rng& rng) const
 {
     const BSDFClosure&        c            {surface.c};
@@ -127,7 +127,7 @@ BounceSample PreviewSurfaceMaterial::SampleBounce(
         float coatFresnel = c.Coat * FresnelDielectric(GfDot(currentRayDir, shadingNormal), c.CoatIor);
         if (rng.NextFloat() < coatFresnel) {
             if (state.reflectionBounces >= config.effectiveMaxRefl)
-                return {.Terminate = true};
+                return BounceSampleError::MaxReflectionBouncesReached;
             ++state.reflectionBounces;
             GfVec3f reflectDir;
             if (c.CoatRoughness > 0.0f) {
@@ -135,14 +135,24 @@ BounceSample PreviewSurfaceMaterial::SampleBounce(
                 reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, h) * h).GetNormalized();
                 if (GfDot(reflectDir, shadingNormal) < 0)
                     reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal).GetNormalized();
+                const float cosH = std::max(0.f, GfDot(reflectDir, h));
+                return BsdfBounceSample{
+                    .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
+                    .ThroughputMul           = RGBToSpectrum(c.CoatColor, lambda),
+                    .BsdfPdf                 = {cosH > 0.f ? GGXPdf(h, shadingNormal, c.CoatRoughness) / (4.f * cosH) : 0.f, PdfSpace::SolidAngle},
+                    .ImpossibleNEEConnection = false,
+                    .SkipRoulette            = true,
+                };
             } else {
                 reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal).GetNormalized();
+                return BsdfBounceSample{
+                    .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
+                    .ThroughputMul           = RGBToSpectrum(c.CoatColor, lambda),
+                    .BsdfPdf                 = {0.f, PdfSpace::SolidAngle},
+                    .ImpossibleNEEConnection = true,
+                    .SkipRoulette            = true,
+                };
             }
-            return {
-                .NextRay       = {hitPos + shadingNormal * 1e-4f, reflectDir},
-                .ThroughputMul = RGBToSpectrum(c.CoatColor, lambda),
-                .SkipRoulette  = true,
-            };
         }
     }
 
@@ -152,7 +162,7 @@ BounceSample PreviewSurfaceMaterial::SampleBounce(
         float sheenFresnel = c.Sheen * std::pow(1.0f - cosTheta, 5.0f);
         if (rng.NextFloat() < sheenFresnel) {
             if (state.reflectionBounces >= config.effectiveMaxRefl)
-                return {.Terminate = true};
+                return BounceSampleError::MaxReflectionBouncesReached;
             ++state.reflectionBounces;
             GfVec3f reflectDir;
             if (c.SheenRoughness > 0.0f) {
@@ -160,14 +170,24 @@ BounceSample PreviewSurfaceMaterial::SampleBounce(
                 reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, h) * h).GetNormalized();
                 if (GfDot(reflectDir, shadingNormal) < 0)
                     reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal).GetNormalized();
+                const float cosH = std::max(0.f, GfDot(reflectDir, h));
+                return BsdfBounceSample{
+                    .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
+                    .ThroughputMul           = RGBToSpectrum(c.SheenColor, lambda),
+                    .BsdfPdf                 = {cosH > 0.f ? GGXPdf(h, shadingNormal, c.SheenRoughness) / (4.f * cosH) : 0.f, PdfSpace::SolidAngle},
+                    .ImpossibleNEEConnection = false,
+                    .SkipRoulette            = true,
+                };
             } else {
                 reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal).GetNormalized();
+                return BsdfBounceSample{
+                    .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
+                    .ThroughputMul           = RGBToSpectrum(c.SheenColor, lambda),
+                    .BsdfPdf                 = {0.f, PdfSpace::SolidAngle},
+                    .ImpossibleNEEConnection = true,
+                    .SkipRoulette            = true,
+                };
             }
-            return {
-                .NextRay       = {hitPos + shadingNormal * 1e-4f, reflectDir},
-                .ThroughputMul = RGBToSpectrum(c.SheenColor, lambda),
-                .SkipRoulette  = true,
-            };
         }
     }
 
@@ -189,22 +209,31 @@ BounceSample PreviewSurfaceMaterial::SampleBounce(
     if (randVal < reflectProb) {
         // --- Reflection ---
         if (state.reflectionBounces >= config.effectiveMaxRefl)
-            return {.Terminate = true};
+            return BounceSampleError::MaxReflectionBouncesReached;
         ++state.reflectionBounces;
         GfVec3f reflectDir;
+        GfVec3f reflTint = c.SpecularColor * (1.0f - c.Metallic) + c.BaseColor * c.Metallic;
         if (c.Roughness > 0.0f) {
             GfVec3f h = AlignToNormal(SampleGGX(rng.NextFloat(), rng.NextFloat(), c.Roughness), shadingNormal);
             reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, h) * h).GetNormalized();
             if (GfDot(reflectDir, shadingNormal) < 0)
                 reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal).GetNormalized();
+            const float cosH = std::max(0.f, GfDot(reflectDir, h));
+            return BsdfBounceSample{
+                    .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
+                .ThroughputMul           = RGBToSpectrum(reflTint, lambda),
+                .BsdfPdf                 = {cosH > 0.f ? GGXPdf(h, shadingNormal, c.Roughness) / (4.f * cosH) : 0.f, PdfSpace::SolidAngle},
+                .ImpossibleNEEConnection = false,
+            };
         } else {
             reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal).GetNormalized();
+            return BsdfBounceSample{
+                    .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
+                .ThroughputMul           = RGBToSpectrum(reflTint, lambda),
+                .BsdfPdf                 = {0.f, PdfSpace::SolidAngle},
+                .ImpossibleNEEConnection = true,
+            };
         }
-        GfVec3f reflTint = c.SpecularColor * (1.0f - c.Metallic) + c.BaseColor * c.Metallic;
-        return {
-            .NextRay       = {hitPos + shadingNormal * 1e-4f, reflectDir},
-            .ThroughputMul = RGBToSpectrum(reflTint, lambda),
-        };
     } else {
         float remainingProb = (randVal - reflectProb) / (1.0f - reflectProb);
         if (c.Transmission > 1e-6f && remainingProb < c.Transmission) {
@@ -219,7 +248,7 @@ BounceSample PreviewSurfaceMaterial::SampleBounce(
 
             if (k >= 0) {
                 if (state.refractionBounces >= config.effectiveMaxRefr)
-                    return {.Terminate = true};
+                    return BounceSampleError::MaxRefractionBouncesReached;
                 ++state.refractionBounces;
                 GfVec3f refractDir = (eta * currentRayDir - (eta * cosThetaI + std::sqrt(k)) * n).GetNormalized();
 
@@ -233,30 +262,38 @@ BounceSample PreviewSurfaceMaterial::SampleBounce(
                         refractDir = (currentRayDir - 2.0f * cosThetaI_h * h).GetNormalized();
                 }
 
-                return {
-                    .NextRay       = {hitPos - n * 1e-4f, refractDir},
-                    .ThroughputMul = RGBToSpectrum(c.TransmissionColor, lambda),
+                return BsdfBounceSample{
+                    .NextRay                 = {hitPos - n * 1e-4f, refractDir},
+                    .ThroughputMul           = RGBToSpectrum(c.TransmissionColor, lambda),
+                    .BsdfPdf                 = {0.f, PdfSpace::SolidAngle},
+                    .ImpossibleNEEConnection = true,
                 };
             } else {
                 // Total Internal Reflection
                 if (state.reflectionBounces >= config.effectiveMaxRefl)
-                    return {.Terminate = true};
+                    return BounceSampleError::MaxReflectionBouncesReached;
                 ++state.reflectionBounces;
                 GfVec3f reflectDir = (currentRayDir - 2.0f * cosThetaI * shadingNormal).GetNormalized();
-                return {.NextRay = {hitPos + shadingNormal * 1e-4f, reflectDir}};
+                return BsdfBounceSample{
+                    .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
+                    .BsdfPdf                 = {0.f, PdfSpace::SolidAngle},
+                    .ImpossibleNEEConnection = true,
+                };
             }
         } else {
             // --- Diffuse ---
             GfVec3f diffuseDir = AlignToNormal(SampleCosineHemisphere(rng.NextFloat(), rng.NextFloat()), shadingNormal);
             float nDotL = std::max(0.0f, GfDot(shadingNormal, diffuseDir));
-            float pdf   = nDotL / (float)M_PI;
-            if (pdf < 1e-6f)
-                return {.Terminate = true};
+            float rawPdf{nDotL / static_cast<float>(M_PI)};
+            float safePdf{std::max(rawPdf, 1e-6f)};
+            float throughputScale{rawPdf / safePdf};
 
             GfVec3f finalDiffuse = c.BaseColor * (1.0f - c.Subsurface) + c.SubsurfaceColor * c.Subsurface;
-            return {
-                .NextRay       = {hitPos + shadingNormal * 1e-4f, diffuseDir},
-                .ThroughputMul = RGBToSpectrum(finalDiffuse, lambda),
+            return BsdfBounceSample{
+                    .NextRay                 = {hitPos + shadingNormal * 1e-4f, diffuseDir},
+                .ThroughputMul           = RGBToSpectrum(finalDiffuse, lambda) * throughputScale,
+                .BsdfPdf                 = {safePdf, PdfSpace::SolidAngle},
+                .ImpossibleNEEConnection = false,
             };
         }
     }

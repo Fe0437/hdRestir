@@ -3,6 +3,7 @@
 
 #include "pxr/pxr.h"
 #include "pxr/imaging/hd/mesh.h"
+#include "scene/scene.h"
 #include "sceneInterface/mesh.h"
 #include "pxr/base/vt/array.h"
 #include "pxr/base/gf/matrix4f.h"
@@ -48,8 +49,15 @@ protected:
     virtual HdDirtyBits _PropagateDirtyBits(HdDirtyBits bits) const override;
 
 private:
-    TfTokenVector _UpdateComputedPrimvarSources(HdSceneDelegate* sceneDelegate,
+    TfTokenVector _updateComputedPrimvarSources(HdSceneDelegate* sceneDelegate,
                                                 HdDirtyBits dirtyBits);
+    void _syncSceneState(HdSceneDelegate* sceneDelegate,
+                         HdDirtyBits dirtyBits,
+                         Restir::Scene& scene);
+    void _syncMeshState(HdSceneDelegate* sceneDelegate,
+                        HdDirtyBits dirtyBits);
+    void _rebuildSubsetsIfNeeded(HdSceneDelegate* sceneDelegate,
+                                 HdDirtyBits dirtyBits);
 
     VtVec3fArray _points{};
     GfMatrix4f _transform{1.0f};

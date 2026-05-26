@@ -56,7 +56,7 @@ BSDFClosure DefaultMaterial::GetClosure(const HitRecord& hit) const {
     };
 }
 
-BounceSample DefaultMaterial::SampleBounce(
+BounceSampleResult DefaultMaterial::SampleBounce(
     const ShadingPoint& surface, const BounceConfig& config,
     [[maybe_unused]] BounceState& state, Rng& rng) const
 {
@@ -64,11 +64,15 @@ BounceSample DefaultMaterial::SampleBounce(
     const GfVec3f wiL  {sampleCosineHemisphere(rng.NextFloat(), rng.NextFloat())};
     const GfVec3f wi   {onb.toWorld(wiL)};
     const float   nDotL{wiL[2]};
-    if (nDotL < 1e-6f) return {.Terminate = true};
+    const float rawPdf{nDotL / kPi};
+    const float safePdf{std::max(rawPdf, 1e-6f)};
+    const float throughputScale{rawPdf / safePdf};
 
-    return {
-        .NextRay       = {surface.hit.Position + surface.shadingNormal * 1e-4f, wi},
-        .ThroughputMul = RGBToSpectrum(surface.c.BaseColor, surface.lambda),
+     return BsdfBounceSample{
+        .NextRay                 = {surface.hit.Position + surface.shadingNormal * 1e-4f, wi},
+        .ThroughputMul           = RGBToSpectrum(surface.c.BaseColor, surface.lambda) * throughputScale,
+        .BsdfPdf                 = {safePdf, PdfSpace::SolidAngle},
+        .ImpossibleNEEConnection = false,
     };
 }
 

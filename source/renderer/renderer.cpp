@@ -162,11 +162,40 @@ void ApplyEnvironmentOverrides(
     }
 }
 
-[[nodiscard]] const std::array<Restir::Renderer::RenderOptionSpec, 25>& GetRenderOptionSpecsArray()
+void SyncRisRenderSettings(
+    std::unordered_map<TfToken, VtValue, TfToken::HashFunctor>& renderSettings,
+    const TfToken& changedKey)
 {
-    static const std::array<Restir::Renderer::RenderOptionSpec, 25> specs{{
+    if (changedKey == HdRestirRenderSettingsTokens->enableRis) {
+        const auto it{renderSettings.find(HdRestirRenderSettingsTokens->enableRis)};
+        if (it == renderSettings.end() || !it->second.IsHolding<bool>()) {
+            return;
+        }
+
+        renderSettings.insert_or_assign(
+            HdRestirRenderSettingsTokens->primaryPipeline,
+            VtValue{it->second.Get<bool>() ? Restir::GetRISPipelineToken()
+                                           : Restir::GetPathTracerPipelineToken()});
+        return;
+    }
+
+    if (changedKey == HdRestirRenderSettingsTokens->primaryPipeline) {
+        const auto it{renderSettings.find(HdRestirRenderSettingsTokens->primaryPipeline)};
+        if (it == renderSettings.end() || !it->second.IsHolding<TfToken>()) {
+            return;
+        }
+
+        renderSettings.insert_or_assign(
+            HdRestirRenderSettingsTokens->enableRis,
+            VtValue{it->second.Get<TfToken>() == Restir::GetRISPipelineToken()});
+    }
+}
+
+[[nodiscard]] const std::array<Restir::Renderer::RenderOptionSpec, 27>& GetRenderOptionSpecsArray()
+{
+    static const std::array<Restir::Renderer::RenderOptionSpec, 27> specs{{
         {"Enable Split Screen", HdRestirRenderSettingsTokens->enableSplitScreen, VtValue(false)},
-        {"Primary Pipeline", HdRestirRenderSettingsTokens->primaryPipeline, VtValue(Restir::GetPathTracerPipelineToken())},
+        {"Primary Pipeline", HdRestirRenderSettingsTokens->primaryPipeline, VtValue(Restir::GetRISPipelineToken()), /*Hidden=*/true},
         {"Split Screen Right Pipeline", HdRestirRenderSettingsTokens->splitScreenRightPipeline, VtValue(Restir::GetPathTracerPostProcessPipelineToken())},
         {"Enable Subsurface Scattering", HdRestirRenderSettingsTokens->enableSubsurface, VtValue(true)},
         {"Enable OIDN Denoiser", HdRestirRenderSettingsTokens->enableDenoiser, VtValue(true)},
@@ -298,6 +327,7 @@ Restir::Renderer::SetRenderSetting(const TfToken& key, const VtValue& value)
     }
 
     _renderSettings.insert_or_assign(key, normalized);
+    SyncRisRenderSettings(_renderSettings, key);
     return true;
 }
 

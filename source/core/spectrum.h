@@ -108,3 +108,4 @@ public:
 // Analytical CIE 1931 matching functions approximation
 GfVec3f SpectrumToRGB(const SampledSpectrum& s, const SampledWavelengths& lambda);
 SampledSpectrum RGBToSpectrum(const GfVec3f& rgb, const SampledWavelengths& lambda);
+[[nodiscard]] float SpectrumLuminance(const SampledSpectrum& s, const SampledWavelengths& lambda);

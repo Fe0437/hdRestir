@@ -41,8 +41,8 @@ public:
     virtual void BuildRenderState(const SceneBuildRenderStateConfig& config,
                                   const IRenderJob& job) = 0;
 
-    // Returns nullptr if matId is invalid or the instance has no material bound.
-    [[nodiscard]] virtual const IMaterial*               GetMaterial(int matId) const = 0;
+    // Always returns a valid material. Invalid ids or missing bindings map to DefaultMaterial.
+    [[nodiscard]] virtual const IMaterial&               GetMaterial(int matId) const = 0;
 
     // Returns the active environment (IBL map or physical sky). Always non-null after
     // _PrepareScene; nullptr only before the first frame is prepared.
@@ -52,6 +52,9 @@ public:
 
     // Returns the sky-light (PhysicalSky sun) as an ILight, or nullptr if none.
     [[nodiscard]] virtual const ILight*                  GetSkyLight() const noexcept = 0;
+
+    // Returns the ILight* if the hit surface is the geometry of a registered light, nullptr otherwise.
+    [[nodiscard]] virtual const ILight*                  GetLightAtHit(const HitRecord& hit) const = 0;
 
     [[nodiscard]] virtual std::optional<HitRecord>       IntersectScene(
         const GfVec3f& rayOrigin,

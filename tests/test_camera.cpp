@@ -49,9 +49,9 @@ void TestCenterRayHitsFocusPlane()
     Restir::Rng rng{};
     rng.ResetSeed(1234u);
 
-    const Restir::CameraRay ray{Restir::GenerateCameraRay(identity, identity, 0.5f, 0.5f, 1, 1, params, rng)};
-    const float t{(-params.focusDistance - ray.origin[2]) / ray.dir[2]};
-    const GfVec3f hit{ray.origin + ray.dir * t};
+    const Restir::Ray ray{Restir::GenerateCameraRay(identity, identity, 0.5f, 0.5f, 1, 1, params, rng)};
+    const float t{(-params.focusDistance - ray.Origin[2]) / ray.Dir[2]};
+    const GfVec3f hit{ray.Origin + ray.Dir * t};
 
     assert(NearlyEqual(hit[0], 0.0f));
     assert(NearlyEqual(hit[1], 0.0f));

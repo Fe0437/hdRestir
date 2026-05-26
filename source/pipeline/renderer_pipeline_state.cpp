@@ -12,58 +12,76 @@ enum class PipelineKind {
 };
 
 template<typename T>
-[[nodiscard]] T GetRenderSettingOrDefault(
-    const std::unordered_map<TfToken, VtValue, TfToken::HashFunctor>& renderSettings,
+[[nodiscard]] T Get(
+    const std::unordered_map<TfToken, VtValue, TfToken::HashFunctor>& values,
     const TfToken& key,
     T fallback)
 {
-    const auto it{renderSettings.find(key)};
-    if (it == renderSettings.end() || !it->second.IsHolding<T>()) {
+    const auto it{values.find(key)};
+    if (it == values.end() || !it->second.IsHolding<T>()) {
         return fallback;
     }
     return it->second.Get<T>();
 }
 
-[[nodiscard]] PipelineKind ParsePipelineKind(const TfToken& token)
+[[nodiscard]] PathTracerPipelineSettings MakePathTracerSettings(
+    const RendererPipelineSettings& s)
 {
-    if (token == GetPathTracerPostProcessPipelineToken()) {
-        return PipelineKind::PathTracerPostProcess;
-    }
-    return PipelineKind::PathTracer;
+    const auto& v{s.Values};
+    return PathTracerPipelineSettings{
+        .MaxDepth         = 32,
+        .ResolutionLevel  = Get<int>(v,  HdRestirRenderSettingsTokens->resolutionLevel,    0),
+        .OutputNames      = s.OutputNames,
+        .PathTrace        = PathTracePassSettings{
+            .EnableSubsurface      = Get<bool>(v, HdRestirRenderSettingsTokens->enableSubsurface,      false),
+            .MaxReflectionBounces  = Get<int> (v, HdRestirRenderSettingsTokens->maxReflectionBounces,  0),
+            .MaxRefractionBounces  = Get<int> (v, HdRestirRenderSettingsTokens->maxRefractionBounces,  0),
+            .RenderIblBackground   = Get<bool>(v, HdRestirRenderSettingsTokens->renderIblBackground,   false),
+        },
+        .Denoiser         = Denoiser::Config{
+            .EnableDenoiser        = Get<bool>(v, HdRestirRenderSettingsTokens->enableDenoiser,        false),
+            .EnableFireflyFilter   = Get<bool>(v, HdRestirRenderSettingsTokens->enableFireflyFilter,   false),
+            .EnableChromaticityBlur= Get<bool>(v, HdRestirRenderSettingsTokens->enableChromaticityBlur,false),
+        },
+        .PostProcess      = PostProcess::Config{
+            .EnableLensFlare       = Get<bool> (v, HdRestirRenderSettingsTokens->enableLensFlare,      false),
+            .ChromaticAberration   = Get<float>(v, HdRestirRenderSettingsTokens->chromaticAberration,  0.0f),
+        },
+    };
+}
 }
 
 [[nodiscard]] std::unique_ptr<RenderPipeline> MakeBuiltinPipeline(
-    PipelineKind pipelineKind,
-    std::string&& name,
-    const PathTracerPipelineSettings& settings)
+    PipelineKind      kind,
+    std::string&&     name,
+    const RendererPipelineSettings& settings)
 {
-    switch (pipelineKind) {
+    switch (kind) {
     case PipelineKind::PathTracer:
-        return makePathTracerPipeline(std::move(name), settings);
+        return makePathTracerPipeline(std::move(name), MakePathTracerSettings(settings));
     case PipelineKind::PathTracerPostProcess:
-        return makePathTracerPostProcessPipeline(std::move(name), settings);
+        return makePathTracerPostProcessPipeline(std::move(name), MakePathTracerSettings(settings));
     }
-
-    return makePathTracerPipeline(std::move(name), settings);
+    return makePathTracerPipeline(std::move(name), MakePathTracerSettings(settings));
 }
 
 }  // namespace
 
 RendererPipelineState::RendererPipelineState(const RendererPipelineSettings& settings)
 {
-    const PipelineKind primaryPipelineKind{ParsePipelineKind(settings.PrimaryPipeline)};
-    const PipelineKind rightPipelineKind{ParsePipelineKind(settings.SplitScreenRightPipeline)};
+    const PipelineKind primary{ParsePipelineKind(settings.PrimaryPipeline)};
 
     if (settings.EnableSplitScreen) {
+        const PipelineKind right{ParsePipelineKind(settings.SplitScreenRightPipeline)};
+        const int resLevel{Get<int>(settings.Values, HdRestirRenderSettingsTokens->resolutionLevel, 0)};
         _splitScreen = std::make_unique<SplitScreenCompositor>(
-            MakeBuiltinPipeline(primaryPipelineKind, "LeftPipeline", settings.PathTracer),
-            MakeBuiltinPipeline(rightPipelineKind, "RightPipeline", settings.PathTracer),
-            settings.PathTracer.ResolutionLevel,
-            settings.PathTracer.ResolutionLevel);
+            MakeBuiltinPipeline(primary, "LeftPipeline",  settings),
+            MakeBuiltinPipeline(right,   "RightPipeline", settings),
+            resLevel, resLevel);
         return;
     }
 
-    _singlePipeline = MakeBuiltinPipeline(primaryPipelineKind, "PrimaryPipeline", settings.PathTracer);
+    _singlePipeline = MakeBuiltinPipeline(primary, "PrimaryPipeline", settings);
 }
 
 void RendererPipelineState::Execute(RenderContext& ctx)
@@ -81,80 +99,22 @@ RendererPipelineSettings MakeRendererPipelineSettings(
     const std::unordered_map<TfToken, VtValue, TfToken::HashFunctor>& renderSettings,
     gsl::span<const std::string> requestedOutputNames)
 {
-    RendererPipelineSettings settings{};
-
-    settings.EnableSplitScreen = GetRenderSettingOrDefault<bool>(
-        renderSettings,
-        HdRestirRenderSettingsTokens->enableSplitScreen,
-        false);
-    settings.PrimaryPipeline = GetRenderSettingOrDefault<TfToken>(
-        renderSettings,
-        HdRestirRenderSettingsTokens->primaryPipeline,
-        GetPathTracerPipelineToken());
-    settings.SplitScreenRightPipeline = GetRenderSettingOrDefault<TfToken>(
-        renderSettings,
-        HdRestirRenderSettingsTokens->splitScreenRightPipeline,
-        GetPathTracerPostProcessPipelineToken());
-
-    settings.PathTracer.ResolutionLevel = GetRenderSettingOrDefault<int>(
-        renderSettings,
-        HdRestirRenderSettingsTokens->resolutionLevel,
-        0);
-    settings.PathTracer.OutputNames = std::vector<std::string>{requestedOutputNames.begin(), requestedOutputNames.end()};
-    settings.PathTracer.PathTrace = PathTracePassSettings{
-        .EnableSubsurface = GetRenderSettingOrDefault<bool>(
-            renderSettings,
-            HdRestirRenderSettingsTokens->enableSubsurface,
-            false),
-        .MaxReflectionBounces = GetRenderSettingOrDefault<int>(
-            renderSettings,
-            HdRestirRenderSettingsTokens->maxReflectionBounces,
-            0),
-        .MaxRefractionBounces = GetRenderSettingOrDefault<int>(
-            renderSettings,
-            HdRestirRenderSettingsTokens->maxRefractionBounces,
-            0),
-        .RenderIblBackground = GetRenderSettingOrDefault<bool>(
-            renderSettings,
-            HdRestirRenderSettingsTokens->renderIblBackground,
-            false),
+    return RendererPipelineSettings{
+        .Values                  = renderSettings,
+        .PrimaryPipeline         = Get<TfToken>(renderSettings,
+                                       HdRestirRenderSettingsTokens->primaryPipeline,
+                                       GetPathTracerPipelineToken()),
+        .SplitScreenRightPipeline = Get<TfToken>(renderSettings,
+                                       HdRestirRenderSettingsTokens->splitScreenRightPipeline,
+                                       GetPathTracerPostProcessPipelineToken()),
+        .EnableSplitScreen       = Get<bool>(renderSettings,
+                                       HdRestirRenderSettingsTokens->enableSplitScreen,
+                                       false),
+        .OutputNames             = {requestedOutputNames.begin(), requestedOutputNames.end()},
     };
-    settings.PathTracer.Denoiser = Denoiser::Config{
-        .EnableDenoiser = GetRenderSettingOrDefault<bool>(
-            renderSettings,
-            HdRestirRenderSettingsTokens->enableDenoiser,
-            false),
-        .EnableFireflyFilter = GetRenderSettingOrDefault<bool>(
-            renderSettings,
-            HdRestirRenderSettingsTokens->enableFireflyFilter,
-            false),
-        .EnableChromaticityBlur = GetRenderSettingOrDefault<bool>(
-            renderSettings,
-            HdRestirRenderSettingsTokens->enableChromaticityBlur,
-            false),
-    };
-    settings.PathTracer.PostProcess = PostProcess::Config{
-        .EnableLensFlare = GetRenderSettingOrDefault<bool>(
-            renderSettings,
-            HdRestirRenderSettingsTokens->enableLensFlare,
-            false),
-        .ChromaticAberration = GetRenderSettingOrDefault<float>(
-            renderSettings,
-            HdRestirRenderSettingsTokens->chromaticAberration,
-            0.0f),
-    };
-
-    return settings;
 }
 
-TfToken GetPathTracerPipelineToken()
-{
-    return TfToken{"PathTracer"};
-}
-
-TfToken GetPathTracerPostProcessPipelineToken()
-{
-    return TfToken{"PathTracerPostProcess"};
-}
+TfToken GetPathTracerPipelineToken()        { return TfToken{"PathTracer"}; }
+TfToken GetPathTracerPostProcessPipelineToken() { return TfToken{"PathTracerPostProcess"}; }
 
 }  // namespace Restir

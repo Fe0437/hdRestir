@@ -23,14 +23,14 @@ debug-test:
     {{python}} workflow.py debug
     ctest --test-dir build -V
 
-launch scene="scene.usda":
-    {{python}} workflow.py launch "{{scene}}"
+launch scene="example_scenes/scene.usda" render_settings="":
+    {{python}} workflow.py launch "{{scene}}" {{render_settings}}
 
-capture scene="scene.usda" output="capture.png":
-    {{python}} workflow.py capture "{{scene}}" "{{output}}"
+capture scene="example_scenes/scene.usda" output="capture.png" render_settings="":
+    {{python}} workflow.py capture "{{scene}}" "{{output}}" {{render_settings}}
 
 capture-internal-reference output="reference/internal_scene_reference.hdr":
-    {{python}} workflow.py capture "scene.usda" "{{output}}" \
+    {{python}} workflow.py capture "example_scenes/scene.usda" "{{output}}" \
         --render-setting targetSampleCount=2048 \
         --render-setting enableSplitScreen=0 \
         --render-setting primaryPipeline=PathTracer \

@@ -142,7 +142,13 @@ std::optional<LightSample> PhysicalSky::SampleLight(
 {
     const std::optional<SunSample> sun{SampleDirect()};
     if (!sun.has_value()) return std::nullopt;
-    return LightSample{sun->Dir, sun->Color, 1e30f, 1.0f};
+    return LightSample{sun->Dir, sun->Color, -sun->Dir, 1e30f, Pdf{1.f, PdfSpace::SolidAngle}};
+}
+
+Pdf PhysicalSky::EvalPdf(const GfVec3f& /*hitPos*/, const GfVec3f& /*dir*/,
+                          float /*dist*/, const GfVec3f& /*lightNormal*/) const
+{
+    return {0.f, PdfSpace::Area};
 }
 
 GfVec3f PhysicalSky::GetSunTransmittance() const

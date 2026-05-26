@@ -58,6 +58,14 @@ inline float FresnelDielectric(float cosThetaI, float ior) {
     return (rParl * rParl + rPerp * rPerp) / 2.0f;
 }
 
+// GGX NDF pdf over half-vectors: D(h)*dot(h,n). To get pdf over wi: divide by (4*dot(wi,h)).
+inline float GGXPdf(const GfVec3f& h, const GfVec3f& n, float alpha) {
+    float cosH  = std::max(0.f, GfDot(h, n));
+    float a2    = alpha * alpha;
+    float denom = cosH * cosH * (a2 - 1.f) + 1.f;
+    return a2 / ((float)M_PI * denom * denom) * cosH;
+}
+
 inline float PowerHeuristic(float f, float g) {
     float f2 = f * f;
     float g2 = g * g;

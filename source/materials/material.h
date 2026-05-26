@@ -1,6 +1,7 @@
 #pragma once
 
 #include "hit_record.h"
+#include "math/pdf.h"
 #include "ray.h"
 #include "rng.h"
 #include "spectrum.h"
@@ -10,6 +11,7 @@
 #include <cstdint>
 #include <gsl/gsl>
 #include <memory>
+#include <variant>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -44,12 +46,20 @@ struct BSDFClosure {
 };
 
 // Result of a bounce sample — next ray plus throughput multiplier.
-struct BounceSample {
+struct BsdfBounceSample {
     Ray             NextRay{};
     SampledSpectrum ThroughputMul{1.0f};
-    bool            Terminate{false};
+    Pdf             BsdfPdf{0.f, PdfSpace::SolidAngle}; // pdf of the sampled direction
+    bool            ImpossibleNEEConnection{false}; // true for perfect mirror/glass/delta bounces
     bool            SkipRoulette{false};
 };
+
+enum class BounceSampleError {
+    MaxReflectionBouncesReached,
+    MaxRefractionBouncesReached,
+};
+
+using BounceSampleResult = std::variant<BsdfBounceSample, BounceSampleError>;
 
 // Interface for evaluating a BSDF for direct lighting (combined diffuse+specular).
 // Stateful: constructed with the BSDFClosure for the current surface point.
@@ -72,7 +82,7 @@ public:
         const GfVec3f& wi) const noexcept = 0;
 };
 
-// Surface state at a shading point — shared by SampleDirectLighting and SampleBounce.
+// Surface state at a shading point — shared between NEE and bounce sampling.
 struct ShadingPoint {
     const HitRecord&          hit;
     const IBSDF&              bsdf;
@@ -110,7 +120,7 @@ public:
     }
 
     // shadingNormal is c.Normal already flipped for isInside by the caller.
-    [[nodiscard]] virtual BounceSample SampleBounce(
+    [[nodiscard]] virtual BounceSampleResult SampleBounce(
         const ShadingPoint& surface,
         const BounceConfig& config,
         BounceState&        state,

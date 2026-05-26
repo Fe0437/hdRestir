@@ -97,7 +97,27 @@ std::optional<LightSample> DomeLight::SampleLight(const GfVec3f& /*hitPos*/, Rng
     }
 
     if (lColor[0] <= 0.0f && lColor[1] <= 0.0f && lColor[2] <= 0.0f) return std::nullopt;
-    return LightSample{lDir, lColor, 1e30f, lightPdf};
+    return LightSample{lDir, lColor, -lDir, 1e30f, Pdf{lightPdf, PdfSpace::SolidAngle}};
+}
+
+Pdf DomeLight::EvalPdf(const GfVec3f& /*hitPos*/, const GfVec3f& dir,
+                        float /*dist*/, const GfVec3f& /*lightNormal*/) const
+{
+    return {EvalPdf(dir), PdfSpace::SolidAngle};
+}
+
+float DomeLight::EvalPdf(const GfVec3f& dir) const
+{
+    if (_pixels.empty() || _totalLuminance <= 0.f) return 0.f;
+    float theta = std::acos(std::clamp(dir[1], -1.0f, 1.0f));
+    float phi   = std::atan2(dir[2], dir[0]);
+    if (phi < 0) phi += 2.0f * M_PI;
+    int x = std::clamp(int(phi / (2.0f * M_PI) * _width),  0, _width  - 1);
+    int y = std::clamp(int(theta / M_PI          * _height), 0, _height - 1);
+    size_t idx = (size_t)(y * _width + x) * 3;
+    float lum = 0.2126f * _pixels[idx] + 0.7152f * _pixels[idx+1] + 0.0722f * _pixels[idx+2];
+    return std::max(lum / (_totalLuminance
+        * ((float)M_PI / (float)_height) * (2.0f * (float)M_PI / (float)_width)), 1e-6f);
 }
 
 GfVec3f DomeLight::Sample(const GfVec3f& rayDir) const

@@ -3,7 +3,7 @@ setlocal
 
 SET "PROJ_ROOT=%~dp0"
 SET "SCENE_FILE=%~1"
-IF "%SCENE_FILE%"=="" SET "SCENE_FILE=scene.usda"
+IF "%SCENE_FILE%"=="" SET "SCENE_FILE=example_scenes/scene.usda"
 
 call :ensure_just
 if %errorlevel% neq 0 goto fail

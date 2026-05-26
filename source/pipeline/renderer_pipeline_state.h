@@ -19,10 +19,11 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace Restir {
 
 struct RendererPipelineSettings {
-    PathTracerPipelineSettings PathTracer{};
-    bool                       EnableSplitScreen{false};
-    TfToken                    PrimaryPipeline{TfToken{"PathTracer"}};
-    TfToken                    SplitScreenRightPipeline{TfToken{"PathTracerPostProcess"}};
+    std::unordered_map<TfToken, VtValue, TfToken::HashFunctor> Values{};
+    TfToken                  PrimaryPipeline{};
+    TfToken                  SplitScreenRightPipeline{};
+    bool                     EnableSplitScreen{false};
+    std::vector<std::string> OutputNames{};
 };
 
 class RendererPipelineState final {

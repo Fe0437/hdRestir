@@ -6,7 +6,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace Restir {
 
-CameraRay GenerateCameraRay(
+Ray GenerateCameraRay(
     const GfMatrix4d& inverseViewMatrix,
     const GfMatrix4d& inverseProjMatrix,
     float px, float py, int width, int height)
@@ -21,7 +21,7 @@ CameraRay GenerateCameraRay(
     return {origin, (nearWorld - origin).GetNormalized()};
 }
 
-CameraRay GenerateCameraRay(
+Ray GenerateCameraRay(
     const GfMatrix4d& inverseViewMatrix,
     const GfMatrix4d& inverseProjMatrix,
     float px, float py, int width, int height,

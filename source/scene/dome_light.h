@@ -26,8 +26,12 @@ public:
     [[nodiscard]] std::optional<LightSample> SampleLight(
         const GfVec3f& hitPos, Rng& rng) const override;
 
-    // IEnvironment — bilinear lookup for miss radiance.
+    [[nodiscard]] Pdf EvalPdf(const GfVec3f& hitPos, const GfVec3f& dir,
+                              float dist, const GfVec3f& lightNormal) const override;
+
+    // IEnvironment — bilinear lookup for miss radiance, and solid-angle pdf for MIS.
     [[nodiscard]] GfVec3f Sample(const GfVec3f& dir) const override;
+    [[nodiscard]] float   EvalPdf(const GfVec3f& dir) const override;
 
 private:
     LightParams          _params;

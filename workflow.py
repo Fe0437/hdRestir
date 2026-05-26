@@ -8,6 +8,77 @@ VCPKG_DIR    = os.path.join(PROJECT_ROOT, "vcpkg")
 OS = platform.system()
 
 
+def _python_version_at_least(python_command, major, minor):
+    result = subprocess.run(
+        [*python_command, "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+
+    version_text = result.stdout.strip()
+    if not version_text:
+        return False
+
+    try:
+        current_major, current_minor = (int(part) for part in version_text.split(".", 1))
+    except ValueError:
+        return False
+
+    return (current_major, current_minor) >= (major, minor)
+
+
+def _find_python_at_least(major, minor):
+    candidates = []
+
+    current_python = shutil.which("python3")
+    if current_python:
+        candidates.append([current_python])
+
+    for python_minor in range(minor, 21):
+        python_name = f"python{major}.{python_minor}"
+        python_path = shutil.which(python_name)
+        if python_path:
+            candidates.append([python_path])
+
+    if OS == "Windows":
+        py_launcher = shutil.which("py")
+        if py_launcher:
+            for python_minor in range(minor, 21):
+                candidates.append([py_launcher, f"-{major}.{python_minor}"])
+
+    seen = set()
+    for candidate in candidates:
+        resolved = os.path.realpath(candidate[0])
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if _python_version_at_least(candidate, major, minor):
+            return candidate
+
+    return None
+
+
+def _ensure_python_version():
+    if sys.version_info[:2] >= (3, 11):
+        return
+
+    preferred_python = _find_python_at_least(3, 11)
+    if preferred_python:
+        if os.path.realpath(preferred_python[0]) != os.path.realpath(sys.executable):
+            os.execvp(preferred_python[0], [*preferred_python, *sys.argv])
+        return
+
+    raise RuntimeError(
+        f"Expected Python 3.11 or newer, but got {sys.version.split()[0]} from {sys.executable}. "
+        "Install python3.11+ or put it earlier in PATH."
+    )
+
+
+_ensure_python_version()
+
+
 # ── helpers ───────────────────────────────────────────────────────
 
 def get_triplet():
@@ -29,31 +100,12 @@ def _venv_exe(name):
 
 def _find_base_python():
     """Return path to a non-externally-managed Python suitable for venv creation."""
-    candidates = []
-    if OS == "Darwin":
-        candidates = [
-            "/opt/homebrew/bin/python3.11",
-            "/opt/homebrew/bin/python3.10",
-            "/usr/local/bin/python3.11",
-            "/usr/local/bin/python3.10",
-        ]
-    elif OS == "Linux":
-        for v in ("python3.11", "python3.10", "python3"):
-            r = subprocess.run(["which", v], capture_output=True, text=True)
-            if r.returncode == 0:
-                candidates.append(r.stdout.strip())
-    else:
-        return "python"
-
-    for p in candidates:
-        if os.path.isfile(p) and subprocess.run(
-            [p, "--version"], capture_output=True
-        ).returncode == 0:
-            return p
+    python = _find_python_at_least(3, 11)
+    if python:
+        return python
 
     raise RuntimeError(
-        "No suitable Python 3 found. Install Python 3.10 or 3.11 via Homebrew (macOS) "
-        "or your package manager (Linux)."
+        "No suitable Python 3.11+ found. Install Python 3.11 or newer, or ensure the Python launcher is on PATH."
     )
 
 
@@ -98,8 +150,8 @@ def setup_venv():
 
     if not os.path.isfile(python_bin):
         base = _find_base_python()
-        print(f"\n[venv] Creating project venv from {base} → {VENV_DIR}\n")
-        subprocess.check_call([base, "-m", "venv", VENV_DIR])
+        print(f"\n[venv] Creating project venv from {' '.join(base)} → {VENV_DIR}\n")
+        subprocess.check_call([*base, "-m", "venv", VENV_DIR])
 
     pip_bin = _venv_exe("pip")
     try:
@@ -143,6 +195,7 @@ def build(debug=False):
         f"-DCMAKE_TOOLCHAIN_FILE={toolchain}",
         f"-DVCPKG_TARGET_TRIPLET={triplet}",
         f"-DCMAKE_BUILD_TYPE={build_type}",
+        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
     ]
     if OS == "Darwin":
         cmake_conf.append("-DCMAKE_OSX_ARCHITECTURES=arm64")
@@ -229,8 +282,12 @@ def _apply_capture_render_setting_overrides(
         _set_render_setting_override(env_vars, token_name, value)
 
 
-def launch(scene_path):
+def launch(scene_path, *, render_settings=None):
     venv_python, vcpkg_bin, env_vars = _get_launch_environment()
+    _apply_capture_render_setting_overrides(
+        env_vars,
+        render_settings=render_settings or [],
+    )
 
     usdview = os.path.join(vcpkg_bin, "usdview")
     # Invoke usdview with the project venv's Python (has PySide6)
@@ -269,18 +326,29 @@ def main():
     subparsers.add_parser("debug")
 
     launch_parser = subparsers.add_parser("launch")
-    launch_parser.add_argument("scene", nargs="?", default=os.path.join(PROJECT_ROOT, "scene.usda"))
+    launch_parser.add_argument("scene", nargs="?", default=os.path.join(PROJECT_ROOT, "example_scenes", "scene.usda"))
+    launch_parser.add_argument("--render-setting", action="append", default=[])
+    launch_parser.add_argument("--ris", dest="enable_ris", action="store_true", default=False)
 
     capture_parser = subparsers.add_parser("capture")
-    capture_parser.add_argument("scene", nargs="?", default=os.path.join(PROJECT_ROOT, "scene.usda"))
+    capture_parser.add_argument("scene", nargs="?", default=os.path.join(PROJECT_ROOT, "example_scenes", "scene.usda"))
     capture_parser.add_argument("output", nargs="?", default="capture.png")
     capture_parser.add_argument("--render-setting", action="append", default=[])
+    capture_parser.add_argument("--ris", dest="enable_ris", action="store_true", default=False)
 
     args = parser.parse_args()
     command = args.command or "build"
 
     if command == "launch":
-        launch(args.scene)
+        extra_render_settings = []
+        for item in args.render_setting:
+            token_name, separator, value = item.partition("=")
+            if not separator or not token_name:
+                raise ValueError(f"Invalid --render-setting value: {item!r}. Expected token=value.")
+            extra_render_settings.append((token_name, value))
+        extra_render_settings.append(("enableRis", "true" if args.enable_ris else "false"))
+
+        launch(args.scene, render_settings=extra_render_settings)
         return
     if command == "capture":
         extra_render_settings = []
@@ -289,6 +357,7 @@ def main():
             if not separator or not token_name:
                 raise ValueError(f"Invalid --render-setting value: {item!r}. Expected token=value.")
             extra_render_settings.append((token_name, value))
+        extra_render_settings.append(("enableRis", "true" if args.enable_ris else "false"))
 
         capture(
             args.scene,

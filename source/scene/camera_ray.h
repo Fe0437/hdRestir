@@ -2,6 +2,7 @@
 
 #include "camera_params.h"
 #include "rng.h"
+#include "ray.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/matrix4d.h"
@@ -11,17 +12,12 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace Restir {
 
-struct CameraRay {
-    GfVec3f origin;
-    GfVec3f dir;
-};
-
-[[nodiscard]] CameraRay GenerateCameraRay(
+[[nodiscard]] Ray GenerateCameraRay(
     const GfMatrix4d& inverseViewMatrix,
     const GfMatrix4d& inverseProjMatrix,
     float px, float py, int width, int height);
 
-[[nodiscard]] CameraRay GenerateCameraRay(
+[[nodiscard]] Ray GenerateCameraRay(
     const GfMatrix4d& inverseViewMatrix,
     const GfMatrix4d& inverseProjMatrix,
     float px, float py, int width, int height,

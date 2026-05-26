@@ -320,8 +320,9 @@ HdRestirMaterial::Sync(HdSceneDelegate *sceneDelegate,
 
     if (materialChanged) {
         auto* restirRenderParam{static_cast<HdRestirRenderParam*>(renderParam)};
-        restirRenderParam->AcquireSceneForEdit();
-        restirRenderParam->GetScene()->SetMaterialParams(GetId(), GetParams());
+        restirRenderParam->EditScene([&](Restir::Scene& scene) {
+            scene.SetMaterialParams(GetId(), GetParams());
+        });
     }
 
     *dirtyBits = HdMaterial::Clean;

@@ -97,3 +97,8 @@ SampledSpectrum RGBToSpectrum(const GfVec3f& rgb, const SampledWavelengths& lamb
     
     return s;
 }
+
+    float SpectrumLuminance(const SampledSpectrum& s, const SampledWavelengths& lambda) {
+        const GfVec3f rgb{SpectrumToRGB(s, lambda)};
+        return std::max(0.0f, 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2]);
+    }

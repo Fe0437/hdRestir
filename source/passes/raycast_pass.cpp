@@ -99,7 +99,7 @@ void RaycastPass::Execute(RenderContext& ctx)
                         const std::size_t i  { static_cast<std::size_t>(y) * width + x };
                         const float       px { static_cast<float>(x) + 0.5f };
                         const float       py { static_cast<float>(y) + 0.5f };
-                        CameraRay ray;
+                        Ray ray;
                         if (ctx.cameraParams) {
                             Rng pixelRng{static_cast<std::uint32_t>(i)
                                         ^ static_cast<std::uint32_t>(frameIndex * 12345ULL)};
@@ -109,7 +109,7 @@ void RaycastPass::Execute(RenderContext& ctx)
                             ray = GenerateCameraRay(invView, invProj, px, py, width, height);
                         }
 
-                        gbuf[i] = ctx.scene->IntersectScene(ray.origin, ray.dir);
+                        gbuf[i] = ctx.scene->IntersectScene(ray.Origin, ray.Dir);
                         if (gbuf[i].has_value()) {
                             if (exportDepth) {
                                 depth[i] = gbuf[i]->Depth;

@@ -1,0 +1,285 @@
+#usda 1.0
+(
+    defaultPrim = "world"
+    upAxis = "Y"
+)
+
+# Scene designed to exercise MIS between NEE and BSDF sampling:
+# all lights are RectLights (non-delta), so BSDF rays can hit them directly.
+# Multiple area lights at varying distances, intensities and colours ensure
+# the power-heuristic weighting matters visibly.
+
+def Scope "world"
+{
+    def Scope "Looks"
+    {
+        def Material "Floor"
+        {
+            token outputs:surface.connect = </world/Looks/Floor/PreviewSurface.outputs:surface>
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.50, 0.50, 0.50)
+                float inputs:roughness = 0.95
+                float inputs:metallic = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "BackWall"
+        {
+            token outputs:surface.connect = </world/Looks/BackWall/PreviewSurface.outputs:surface>
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.62, 0.65, 0.72)
+                float inputs:roughness = 0.85
+                float inputs:metallic = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "LeftWall"
+        {
+            token outputs:surface.connect = </world/Looks/LeftWall/PreviewSurface.outputs:surface>
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.72, 0.22, 0.18)
+                float inputs:roughness = 0.90
+                float inputs:metallic = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "RightWall"
+        {
+            token outputs:surface.connect = </world/Looks/RightWall/PreviewSurface.outputs:surface>
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.20, 0.48, 0.72)
+                float inputs:roughness = 0.90
+                float inputs:metallic = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "Ceiling"
+        {
+            token outputs:surface.connect = </world/Looks/Ceiling/PreviewSurface.outputs:surface>
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.85, 0.85, 0.85)
+                float inputs:roughness = 0.90
+                float inputs:metallic = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "MatteSphere"
+        {
+            token outputs:surface.connect = </world/Looks/MatteSphere/PreviewSurface.outputs:surface>
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.80, 0.75, 0.35)
+                float inputs:roughness = 0.90
+                float inputs:metallic = 0
+                token outputs:surface
+            }
+        }
+
+        def Material "GlossySphere"
+        {
+            token outputs:surface.connect = </world/Looks/GlossySphere/PreviewSurface.outputs:surface>
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.20, 0.55, 0.90)
+                float inputs:roughness = 0.12
+                float inputs:metallic = 1
+                token outputs:surface
+            }
+        }
+
+        def Material "RoughBox"
+        {
+            token outputs:surface.connect = </world/Looks/RoughBox/PreviewSurface.outputs:surface>
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.30, 0.68, 0.40)
+                float inputs:roughness = 0.70
+                float inputs:metallic = 0.15
+                token outputs:surface
+            }
+        }
+    }
+
+    # --- Room geometry ---
+
+    def Mesh "floor" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(-6, 0, -6), (6, 0, -6), (6, 0, 6), (-6, 0, 6)]
+        normal3f[] normals = [(0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0)]
+        uniform token subdivisionScheme = "none"
+        rel material:binding = </world/Looks/Floor>
+    }
+
+    def Mesh "ceiling" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(-6, 8, -6), (6, 8, -6), (6, 8, 6), (-6, 8, 6)]
+        normal3f[] normals = [(0, -1, 0), (0, -1, 0), (0, -1, 0), (0, -1, 0)]
+        uniform token subdivisionScheme = "none"
+        rel material:binding = </world/Looks/Ceiling>
+    }
+
+    def Mesh "backWall" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(-6, 0, -6), (6, 0, -6), (6, 8, -6), (-6, 8, -6)]
+        normal3f[] normals = [(0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1)]
+        uniform token subdivisionScheme = "none"
+        rel material:binding = </world/Looks/BackWall>
+    }
+
+    def Mesh "leftWall" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(-6, 0, -6), (-6, 0, 6), (-6, 8, 6), (-6, 8, -6)]
+        normal3f[] normals = [(1, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)]
+        uniform token subdivisionScheme = "none"
+        rel material:binding = </world/Looks/LeftWall>
+    }
+
+    def Mesh "rightWall" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(6, 0, -6), (6, 0, 6), (6, 8, 6), (6, 8, -6)]
+        normal3f[] normals = [(-1, 0, 0), (-1, 0, 0), (-1, 0, 0), (-1, 0, 0)]
+        uniform token subdivisionScheme = "none"
+        rel material:binding = </world/Looks/RightWall>
+    }
+
+    # --- Scene objects ---
+
+    def Sphere "matteSphere" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        double radius = 1.2
+        rel material:binding = </world/Looks/MatteSphere>
+        float3 xformOp:translate = (-2.2, 1.2, -1.5)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Sphere "glossySphere" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        double radius = 1.0
+        rel material:binding = </world/Looks/GlossySphere>
+        float3 xformOp:translate = (2.5, 1.0, 0.5)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Cube "roughBox" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        double size = 2.2
+        rel material:binding = </world/Looks/RoughBox>
+        float3 xformOp:translate = (0.2, 1.1, 2.8)
+        float3 xformOp:rotateXYZ = (0, 35, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+    }
+
+    # --- Area lights (non-delta RectLights at varying positions) ---
+    # These are the key lights for MIS testing: large, at different distances and
+    # angles so both NEE and BSDF-hit paths contribute meaningfully.
+
+    def RectLight "ceilingLight"
+    {
+        float intensity = 18000
+        color3f color = (1.0, 0.98, 0.92)
+        float width = 3.5
+        float height = 3.5
+        float3 xformOp:translate = (0, 7.8, 0)
+        float3 xformOp:rotateXYZ = (90, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+    }
+
+    def RectLight "leftWallLight"
+    {
+        float intensity = 10000
+        color3f color = (0.92, 0.60, 0.35)
+        float width = 2.5
+        float height = 2.0
+        float3 xformOp:translate = (-5.8, 4.5, -1.0)
+        float3 xformOp:rotateXYZ = (0, -90, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+    }
+
+    def RectLight "rightWallLight"
+    {
+        float intensity = 10000
+        color3f color = (0.40, 0.65, 1.0)
+        float width = 2.5
+        float height = 2.0
+        float3 xformOp:translate = (5.8, 4.5, 1.0)
+        float3 xformOp:rotateXYZ = (0, 90, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+    }
+
+    def RectLight "backWallLight"
+    {
+        float intensity = 8000
+        color3f color = (0.85, 1.0, 0.85)
+        float width = 2.0
+        float height = 1.5
+        float3 xformOp:translate = (0, 5.5, -5.8)
+        float3 xformOp:rotateXYZ = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+    }
+
+    def RectLight "frontLight"
+    {
+        float intensity = 6000
+        color3f color = (1.0, 0.90, 1.0)
+        float width = 1.8
+        float height = 1.2
+        float3 xformOp:translate = (0, 2.5, 5.6)
+        float3 xformOp:rotateXYZ = (0, 180, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+    }
+
+    # Camera looking into the box from outside
+    def Camera "mainCamera"
+    {
+        float focalLength = 24
+        float horizontalAperture = 36
+        float verticalAperture = 24
+        float3 xformOp:translate = (0, 4, 14)
+        float3 xformOp:rotateXYZ = (-10, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+    }
+}
