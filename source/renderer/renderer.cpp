@@ -195,13 +195,15 @@ void SyncRisRenderSettings(
 {
     static const std::array<Restir::Renderer::RenderOptionSpec, 27> specs{{
         {"Enable Split Screen", HdRestirRenderSettingsTokens->enableSplitScreen, VtValue(false)},
-        {"Primary Pipeline", HdRestirRenderSettingsTokens->primaryPipeline, VtValue(Restir::GetRISPipelineToken()), /*Hidden=*/true},
+        {"Enable RIS", HdRestirRenderSettingsTokens->enableRis, VtValue(false)},
+        {"Primary Pipeline", HdRestirRenderSettingsTokens->primaryPipeline, VtValue(Restir::GetPathTracerPipelineToken()), /*Hidden=*/true},
         {"Split Screen Right Pipeline", HdRestirRenderSettingsTokens->splitScreenRightPipeline, VtValue(Restir::GetPathTracerPostProcessPipelineToken())},
         {"Enable Subsurface Scattering", HdRestirRenderSettingsTokens->enableSubsurface, VtValue(true)},
         {"Enable OIDN Denoiser", HdRestirRenderSettingsTokens->enableDenoiser, VtValue(true)},
         {"Enable Pre-Pass: Firefly Filter", HdRestirRenderSettingsTokens->enableFireflyFilter, VtValue(true)},
         {"Enable Pre-Pass: Chromaticity Blur", HdRestirRenderSettingsTokens->enableChromaticityBlur, VtValue(true)},
         {"Target Sample Count", HdRestirRenderSettingsTokens->targetSampleCount, VtValue(32)},
+        {"RIS Candidate Count", HdRestirRenderSettingsTokens->risCandidateCount, VtValue(16)},
         {"Max Reflection Bounces", HdRestirRenderSettingsTokens->maxReflectionBounces, VtValue(8)},
         {"Max Refraction Bounces", HdRestirRenderSettingsTokens->maxRefractionBounces, VtValue(8)},
         {"Resolution Level", HdRestirRenderSettingsTokens->resolutionLevel, VtValue(2)},
@@ -284,6 +286,7 @@ Restir::Renderer::Renderer()
         _renderSettings.insert_or_assign(spec.Token, spec.DefaultValue);
     }
     ApplyEnvironmentOverrides(_renderSettings, specs);
+    SyncRisRenderSettings(_renderSettings, HdRestirRenderSettingsTokens->primaryPipeline);
     _pipelineState = std::make_unique<Restir::RendererPipelineState>(
         Restir::MakeRendererPipelineSettings(_renderSettings, _requestedOutputNames));
 #ifdef HdRestir_HAS_OIDN

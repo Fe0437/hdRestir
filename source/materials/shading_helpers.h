@@ -72,6 +72,15 @@ inline float PowerHeuristic(float f, float g) {
     return f2 / (f2 + g2);
 }
 
+// Resampling MIS weight for RIS with nf samples from technique f and ng from g.
+// Satisfies Σ M_k * m_k = 1, so W_X = (1/p̂) * Σ w_i is unbiased without an extra 1/M.
+// For equal nf=ng=N: equals PowerHeuristic(f,g)/N.
+inline float PowerHeuristic(float f, int nf, float g, int ng) {
+    float f2 = f * f;
+    float g2 = g * g;
+    return f2 / (static_cast<float>(nf) * f2 + static_cast<float>(ng) * g2);
+}
+
 // Beer–Lambert volumetric absorption for transmissive materials.
 inline void BeerAbsorption(SampledSpectrum&           throughput,
                             const Restir::BSDFClosure& c,

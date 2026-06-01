@@ -136,10 +136,13 @@ BounceSampleResult PreviewSurfaceMaterial::SampleBounce(
                 if (GfDot(reflectDir, shadingNormal) < 0)
                     reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal).GetNormalized();
                 const float cosH = std::max(0.f, GfDot(reflectDir, h));
+                const float bsdfPdfVal{cosH > 0.f ? GGXPdf(h, shadingNormal, c.CoatRoughness) / (4.f * cosH) : 0.f};
+                const SampledSpectrum tMul{RGBToSpectrum(c.CoatColor, lambda)};
                 return BsdfBounceSample{
                     .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
-                    .ThroughputMul           = RGBToSpectrum(c.CoatColor, lambda),
-                    .BsdfPdf                 = {cosH > 0.f ? GGXPdf(h, shadingNormal, c.CoatRoughness) / (4.f * cosH) : 0.f, PdfSpace::SolidAngle},
+                    .ThroughputMul           = tMul,
+                    .ThroughputIntegrandMul  = tMul * bsdfPdfVal,  // bsdf*cos = ThroughputMul*pdf (GGX: tMul≈bsdf*cos/pdf)
+                    .BsdfPdf                 = {bsdfPdfVal, PdfSpace::SolidAngle},
                     .ImpossibleNEEConnection = false,
                     .SkipRoulette            = true,
                 };
@@ -171,10 +174,13 @@ BounceSampleResult PreviewSurfaceMaterial::SampleBounce(
                 if (GfDot(reflectDir, shadingNormal) < 0)
                     reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal).GetNormalized();
                 const float cosH = std::max(0.f, GfDot(reflectDir, h));
+                const float bsdfPdfVal{cosH > 0.f ? GGXPdf(h, shadingNormal, c.SheenRoughness) / (4.f * cosH) : 0.f};
+                const SampledSpectrum tMul{RGBToSpectrum(c.SheenColor, lambda)};
                 return BsdfBounceSample{
                     .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
-                    .ThroughputMul           = RGBToSpectrum(c.SheenColor, lambda),
-                    .BsdfPdf                 = {cosH > 0.f ? GGXPdf(h, shadingNormal, c.SheenRoughness) / (4.f * cosH) : 0.f, PdfSpace::SolidAngle},
+                    .ThroughputMul           = tMul,
+                    .ThroughputIntegrandMul  = tMul * bsdfPdfVal,
+                    .BsdfPdf                 = {bsdfPdfVal, PdfSpace::SolidAngle},
                     .ImpossibleNEEConnection = false,
                     .SkipRoulette            = true,
                 };
@@ -219,10 +225,13 @@ BounceSampleResult PreviewSurfaceMaterial::SampleBounce(
             if (GfDot(reflectDir, shadingNormal) < 0)
                 reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal).GetNormalized();
             const float cosH = std::max(0.f, GfDot(reflectDir, h));
+            const float bsdfPdfVal{cosH > 0.f ? GGXPdf(h, shadingNormal, c.Roughness) / (4.f * cosH) : 0.f};
+            const SampledSpectrum tMul{RGBToSpectrum(reflTint, lambda)};
             return BsdfBounceSample{
-                    .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
-                .ThroughputMul           = RGBToSpectrum(reflTint, lambda),
-                .BsdfPdf                 = {cosH > 0.f ? GGXPdf(h, shadingNormal, c.Roughness) / (4.f * cosH) : 0.f, PdfSpace::SolidAngle},
+                .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
+                .ThroughputMul           = tMul,
+                .ThroughputIntegrandMul  = tMul * bsdfPdfVal,  // bsdf*cos = ThroughputMul*pdf
+                .BsdfPdf                 = {bsdfPdfVal, PdfSpace::SolidAngle},
                 .ImpossibleNEEConnection = false,
             };
         } else {
@@ -289,9 +298,13 @@ BounceSampleResult PreviewSurfaceMaterial::SampleBounce(
             float throughputScale{rawPdf / safePdf};
 
             GfVec3f finalDiffuse = c.BaseColor * (1.0f - c.Subsurface) + c.SubsurfaceColor * c.Subsurface;
+            const SampledSpectrum diffuseMul{RGBToSpectrum(finalDiffuse, lambda) * throughputScale};
+            // bsdf(wi) = finalDiffuse/π, so bsdf*cos = finalDiffuse * nDotL / π — computed directly
+            const SampledSpectrum diffuseIntegrand{RGBToSpectrum(finalDiffuse, lambda) * (nDotL / static_cast<float>(M_PI))};
             return BsdfBounceSample{
-                    .NextRay                 = {hitPos + shadingNormal * 1e-4f, diffuseDir},
-                .ThroughputMul           = RGBToSpectrum(finalDiffuse, lambda) * throughputScale,
+                .NextRay                 = {hitPos + shadingNormal * 1e-4f, diffuseDir},
+                .ThroughputMul           = diffuseMul,
+                .ThroughputIntegrandMul  = diffuseIntegrand,
                 .BsdfPdf                 = {safePdf, PdfSpace::SolidAngle},
                 .ImpossibleNEEConnection = false,
             };

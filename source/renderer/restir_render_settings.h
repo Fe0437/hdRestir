@@ -7,12 +7,14 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 #define HD_RESTIR_RENDER_SETTINGS_TOKENS \
     (enableSplitScreen)                  \
+    (enableRis)                          \
     (primaryPipeline)                    \
     (splitScreenRightPipeline)           \
     (enableDenoiser)                     \
     (enableFireflyFilter)                \
     (enableChromaticityBlur)             \
     (targetSampleCount)                  \
+    (risCandidateCount)                  \
     (maxReflectionBounces)               \
     (maxRefractionBounces)               \
     (resolutionLevel)                    \

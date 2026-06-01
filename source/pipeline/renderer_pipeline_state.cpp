@@ -1,15 +1,20 @@
 #include "renderer_pipeline_state.h"
 
+#include "ris_pipeline.h"
 #include "restir_render_settings.h"
 
 namespace Restir {
 
 namespace {
 
-enum class PipelineKind {
-    PathTracer,
-    PathTracerPostProcess,
-};
+enum class PipelineKind { RIS, PathTracer, PathTracerPostProcess };
+
+[[nodiscard]] PipelineKind ParsePipelineKind(const TfToken& token)
+{
+    if (token == GetRISPipelineToken())                     return PipelineKind::RIS;
+    if (token == GetPathTracerPostProcessPipelineToken())   return PipelineKind::PathTracerPostProcess;
+    return PipelineKind::PathTracer;
+}
 
 template<typename T>
 [[nodiscard]] T Get(
@@ -49,6 +54,13 @@ template<typename T>
         },
     };
 }
+
+[[nodiscard]] RISPipelineSettings MakeRISSettings(const RendererPipelineSettings& s)
+{
+    return RISPipelineSettings{
+        .PathTracer    = MakePathTracerSettings(s),
+        .CandidateCount = Get<int>(s.Values, HdRestirRenderSettingsTokens->risCandidateCount, 16),
+    };
 }
 
 [[nodiscard]] std::unique_ptr<RenderPipeline> MakeBuiltinPipeline(
@@ -57,6 +69,8 @@ template<typename T>
     const RendererPipelineSettings& settings)
 {
     switch (kind) {
+    case PipelineKind::RIS:
+        return MakeRISPipeline(std::move(name), MakeRISSettings(settings));
     case PipelineKind::PathTracer:
         return makePathTracerPipeline(std::move(name), MakePathTracerSettings(settings));
     case PipelineKind::PathTracerPostProcess:
@@ -116,5 +130,6 @@ RendererPipelineSettings MakeRendererPipelineSettings(
 
 TfToken GetPathTracerPipelineToken()        { return TfToken{"PathTracer"}; }
 TfToken GetPathTracerPostProcessPipelineToken() { return TfToken{"PathTracerPostProcess"}; }
+TfToken GetRISPipelineToken()               { return TfToken{"RIS"}; }
 
 }  // namespace Restir

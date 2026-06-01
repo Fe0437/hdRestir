@@ -67,10 +67,14 @@ BounceSampleResult DefaultMaterial::SampleBounce(
     const float rawPdf{nDotL / kPi};
     const float safePdf{std::max(rawPdf, 1e-6f)};
     const float throughputScale{rawPdf / safePdf};
+    const SampledSpectrum throughputMul{RGBToSpectrum(surface.c.BaseColor, surface.lambda) * throughputScale};
+    // bsdf(wi) = BaseColor/π, so bsdf*cos = BaseColor * nDotL / π — computed directly, no pdf
+    const SampledSpectrum integrandMul{RGBToSpectrum(surface.c.BaseColor, surface.lambda) * (nDotL / kPi)};
 
-     return BsdfBounceSample{
+    return BsdfBounceSample{
         .NextRay                 = {surface.hit.Position + surface.shadingNormal * 1e-4f, wi},
-        .ThroughputMul           = RGBToSpectrum(surface.c.BaseColor, surface.lambda) * throughputScale,
+        .ThroughputMul           = throughputMul,
+        .ThroughputIntegrandMul  = integrandMul,
         .BsdfPdf                 = {safePdf, PdfSpace::SolidAngle},
         .ImpossibleNEEConnection = false,
     };

@@ -48,9 +48,10 @@ struct BSDFClosure {
 // Result of a bounce sample — next ray plus throughput multiplier.
 struct BsdfBounceSample {
     Ray             NextRay{};
-    SampledSpectrum ThroughputMul{1.0f};
-    Pdf             BsdfPdf{0.f, PdfSpace::SolidAngle}; // pdf of the sampled direction
-    bool            ImpossibleNEEConnection{false}; // true for perfect mirror/glass/delta bounces
+    SampledSpectrum ThroughputMul{1.0f};             // bsdf*cos/pdf — path continuation weight
+    SampledSpectrum ThroughputIntegrandMul{0.0f};   // bsdf*cos — pure integrand, no pdf division
+    Pdf             BsdfPdf{0.f, PdfSpace::SolidAngle};
+    bool            ImpossibleNEEConnection{false};   // true for perfect mirror/glass/delta bounces
     bool            SkipRoulette{false};
 };
 

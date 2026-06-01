@@ -1,6 +1,7 @@
 #pragma once
 
 #include "path_tracer_pipeline.h"
+#include "ris_pipeline.h"
 #include "render_context.h"
 #include "render_pipeline.h"
 #include "split_screen.h"
@@ -43,5 +44,6 @@ private:
 
 [[nodiscard]] TfToken GetPathTracerPipelineToken();
 [[nodiscard]] TfToken GetPathTracerPostProcessPipelineToken();
+[[nodiscard]] TfToken GetRISPipelineToken();
 
 }  // namespace Restir
