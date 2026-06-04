@@ -10,22 +10,6 @@ namespace Restir {
 
 namespace {
 
-[[nodiscard]] int ClampResolutionLevel(int level)
-{
-    return std::clamp(level, 0, 4);
-}
-
-[[nodiscard]] int ResolutionDivisor(int level)
-{
-    return 1 << ClampResolutionLevel(level);
-}
-
-[[nodiscard]] int ScaledDimension(int dimension, int level)
-{
-    Expects(dimension > 0);
-    const int divisor{ResolutionDivisor(level)};
-    return std::max(1, (dimension + divisor - 1) / divisor);
-}
 
 template<typename PixelT>
 void BlitBuffer(gsl::span<PixelT> dst,
@@ -72,8 +56,7 @@ void ComposeOptionalBuffer(RenderContext& baseCtx,
         return;
     }
 
-    const std::size_t pixelCount{
-        static_cast<std::size_t>(baseCtx.width) * static_cast<std::size_t>(baseCtx.height)};
+    const std::size_t pixelCount{baseCtx.frame.PixelCount()};
     if (!baseCtx.buffers.Has(name)) {
         baseCtx.buffers.Add(name, sizeof(PixelT), pixelCount);
     }
@@ -84,12 +67,7 @@ void ComposeOptionalBuffer(RenderContext& baseCtx,
     const gsl::span<const PixelT> srcL(srcLMutable.data(), srcLMutable.size());
     const gsl::span<const PixelT> srcR(srcRMutable.data(), srcRMutable.size());
 
-    BlitBuffer(dst,
-               srcL,
-               srcR,
-               baseCtx.width,
-               baseCtx.height,
-               splitT);
+    BlitBuffer(dst, srcL, srcR, baseCtx.frame.windowWidth, baseCtx.frame.windowHeight, splitT);
 }
 
 void ComposeRequestedOutputs(RenderContext& baseCtx,
@@ -104,8 +82,7 @@ void ComposeRequestedOutputs(RenderContext& baseCtx,
                 continue;
             }
 
-            const std::size_t pixelCount{
-                static_cast<std::size_t>(baseCtx.width) * static_cast<std::size_t>(baseCtx.height)};
+            const std::size_t pixelCount{baseCtx.frame.PixelCount()};
             if (!baseCtx.buffers.Has(outputName)) {
                 baseCtx.buffers.Add(outputName, sizeof(GfVec4f), pixelCount);
             }
@@ -115,7 +92,7 @@ void ComposeRequestedOutputs(RenderContext& baseCtx,
             auto srcRMutable{const_cast<RenderContext&>(rightCtx).buf<GfVec4f>(outputName)};
             const gsl::span<const GfVec4f> srcL(srcLMutable.data(), srcLMutable.size());
             const gsl::span<const GfVec4f> srcR(srcRMutable.data(), srcRMutable.size());
-            BlitBuffer(dst, srcL, srcR, baseCtx.width, baseCtx.height, splitT);
+            BlitBuffer(dst, srcL, srcR, baseCtx.frame.windowWidth, baseCtx.frame.windowHeight, splitT);
             break;
         }
         case OutputDataType::Vec3:
@@ -136,59 +113,110 @@ void ComposeRequestedOutputs(RenderContext& baseCtx,
 SplitScreenCompositor::SplitScreenCompositor(std::unique_ptr<RenderPipeline> left,
                                              std::unique_ptr<RenderPipeline> right,
                                              int leftResolutionLevel,
-                                             int rightResolutionLevel)
+                                             int rightResolutionLevel,
+                                             int leftTargetSamples,
+                                             int rightTargetSamples)
     : _left(std::move(left))
     , _right(std::move(right))
-    , _leftResolutionLevel(ClampResolutionLevel(leftResolutionLevel))
-    , _rightResolutionLevel(ClampResolutionLevel(rightResolutionLevel))
+    , _leftResolutionLevel(leftResolutionLevel)
+    , _rightResolutionLevel(rightResolutionLevel)
+    , _leftTargetSamples(leftTargetSamples)
+    , _rightTargetSamples(rightTargetSamples)
 {
     Expects(_left != nullptr);
     Expects(_right != nullptr);
 }
 
-void SplitScreenCompositor::execute(RenderContext& baseCtx)
+bool SplitScreenCompositor::IsConverged() const noexcept
 {
+    return _leftFrameIndex >= _leftTargetSamples && _rightFrameIndex >= _rightTargetSamples;
+}
+
+void SplitScreenCompositor::Execute(RenderContext& baseCtx)
+{
+    const int splitX{std::clamp(
+        static_cast<int>(_splitT * static_cast<float>(baseCtx.frame.windowWidth)),
+        0,
+        baseCtx.frame.windowWidth - 1)};
+
+    const bool leftDone  = _leftFrameIndex  >= _leftTargetSamples;
+    const bool rightDone = _rightFrameIndex >= _rightTargetSamples;
+
     RenderContext leftCtx{
-        baseCtx.scene,
-        baseCtx.viewMatrix,
-        baseCtx.projMatrix,
-        ScaledDimension(baseCtx.width, _leftResolutionLevel),
-        ScaledDimension(baseCtx.height, _leftResolutionLevel),
-        baseCtx.outputWidth,
-        baseCtx.outputHeight,
-        baseCtx.frameIndex,
-        baseCtx.rng,
-        FrameBuffersMap{},
-        baseCtx.OutputNames,
-        baseCtx.cameraParams
+        .scene        = baseCtx.scene,
+        .viewMatrix   = baseCtx.viewMatrix,
+        .projMatrix   = baseCtx.projMatrix,
+        .frame        = baseCtx.frame.AtResolutionLevel(_leftResolutionLevel),
+        .frameIndex   = _leftFrameIndex,
+        .rng          = baseCtx.rng,
+        .buffers      = FrameBuffersMap{},
+        .OutputNames  = baseCtx.OutputNames,
+        .cameraParams = baseCtx.cameraParams,
     };
+    leftCtx.frame.visibleMaxX = splitX;
 
     RenderContext rightCtx{
-        baseCtx.scene,
-        baseCtx.viewMatrix,
-        baseCtx.projMatrix,
-        ScaledDimension(baseCtx.width, _rightResolutionLevel),
-        ScaledDimension(baseCtx.height, _rightResolutionLevel),
-        baseCtx.outputWidth,
-        baseCtx.outputHeight,
-        baseCtx.frameIndex,
-        baseCtx.rng,
-        FrameBuffersMap{},
-        baseCtx.OutputNames,
-        baseCtx.cameraParams
+        .scene        = baseCtx.scene,
+        .viewMatrix   = baseCtx.viewMatrix,
+        .projMatrix   = baseCtx.projMatrix,
+        .frame        = baseCtx.frame.AtResolutionLevel(_rightResolutionLevel),
+        .frameIndex   = _rightFrameIndex,
+        .rng          = baseCtx.rng,
+        .buffers      = FrameBuffersMap{},
+        .OutputNames  = baseCtx.OutputNames,
+        .cameraParams = baseCtx.cameraParams,
     };
+    rightCtx.frame.visibleMinX = splitX + 1;
 
-    const Rng rng {baseCtx.rng};
-    _left->execute(leftCtx);
-    baseCtx.rng = rng;
-    _right->execute(rightCtx);
+    const Rng savedRng{baseCtx.rng};
 
-    Expects(leftCtx.width == baseCtx.outputWidth);
-    Expects(leftCtx.height == baseCtx.outputHeight);
-    Expects(rightCtx.width == baseCtx.outputWidth);
-    Expects(rightCtx.height == baseCtx.outputHeight);
+    if (!leftDone) {
+        _left->Execute(leftCtx);
+        ++_leftFrameIndex;
+        if (_leftFrameIndex >= _leftTargetSamples) {
+            const auto span = leftCtx.buf<GfVec4f>(kColorOutputName);
+            _leftFrozenColor.assign(span.begin(), span.end());
+        }
+        Expects(!leftCtx.frame.NeedsUpscale());
+    } else {
+        // Frozen: the saved color is already at full resolution (upscaled during last live frame).
+        // Override the frame so compositing sees full-res dimensions and no upscale flag.
+        leftCtx.frame = baseCtx.frame;
+        leftCtx.frame.visibleMaxX = splitX;
+        leftCtx.buffers.Add(kColorOutputName, sizeof(GfVec4f), _leftFrozenColor.size());
+        const auto dst = leftCtx.buf<GfVec4f>(kColorOutputName);
+        std::copy(_leftFrozenColor.begin(), _leftFrozenColor.end(), dst.begin());
+    }
+
+    baseCtx.rng = savedRng;
+
+    if (!rightDone) {
+        _right->Execute(rightCtx);
+        ++_rightFrameIndex;
+        if (_rightFrameIndex >= _rightTargetSamples) {
+            const auto span = rightCtx.buf<GfVec4f>(kColorOutputName);
+            _rightFrozenColor.assign(span.begin(), span.end());
+        }
+        Expects(!rightCtx.frame.NeedsUpscale());
+    } else {
+        rightCtx.frame = baseCtx.frame;
+        rightCtx.frame.visibleMinX = splitX + 1;
+        rightCtx.buffers.Add(kColorOutputName, sizeof(GfVec4f), _rightFrozenColor.size());
+        const auto dst = rightCtx.buf<GfVec4f>(kColorOutputName);
+        std::copy(_rightFrozenColor.begin(), _rightFrozenColor.end(), dst.begin());
+    }
 
     ComposeRequestedOutputs(baseCtx, leftCtx, rightCtx, _splitT);
+}
+
+void SplitScreenCompositor::ClearPersistentBuffers()
+{
+    _left->ClearPersistentBuffers();
+    _right->ClearPersistentBuffers();
+    _leftFrameIndex  = 0;
+    _rightFrameIndex = 0;
+    _leftFrozenColor.clear();
+    _rightFrozenColor.clear();
 }
 
 void SplitScreenCompositor::swapSides() noexcept

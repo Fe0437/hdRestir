@@ -39,9 +39,8 @@ public:
         return {std::string{kColorOutputName}};
     }
 
-    void Execute(RenderContext& ctx) override;
-
 protected:
+    void _execute(RenderContext& ctx) override;
     NotNullUniquePtr<IIntegrator> _integrator;
 };
 

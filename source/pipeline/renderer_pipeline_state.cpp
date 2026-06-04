@@ -52,6 +52,11 @@ template<typename T>
             .EnableLensFlare       = Get<bool> (v, HdRestirRenderSettingsTokens->enableLensFlare,      false),
             .ChromaticAberration   = Get<float>(v, HdRestirRenderSettingsTokens->chromaticAberration,  0.0f),
         },
+#if DEBUG_ENABLED
+        .DebugOverlay     = DebugOverlayPass::Config{
+            .Enable = Get<bool>(v, HdRestirRenderSettingsTokens->debugOverlay, false),
+        },
+#endif
     };
 }
 
@@ -88,25 +93,37 @@ RendererPipelineState::RendererPipelineState(const RendererPipelineSettings& set
     if (settings.EnableSplitScreen) {
         const PipelineKind right{ParsePipelineKind(settings.SplitScreenRightPipeline)};
         const int resLevel{Get<int>(settings.Values, HdRestirRenderSettingsTokens->resolutionLevel, 0)};
+        const int leftTarget {Get<int>(settings.Values, HdRestirRenderSettingsTokens->targetSampleCount,            32)};
+        const int rightTarget{Get<int>(settings.Values, HdRestirRenderSettingsTokens->splitScreenTargetSampleCount, 32)};
         _splitScreen = std::make_unique<SplitScreenCompositor>(
             MakeBuiltinPipeline(primary, "LeftPipeline",  settings),
             MakeBuiltinPipeline(right,   "RightPipeline", settings),
-            resLevel, resLevel);
+            resLevel, resLevel,
+            leftTarget, rightTarget);
         return;
     }
 
     _singlePipeline = MakeBuiltinPipeline(primary, "PrimaryPipeline", settings);
 }
 
+void RendererPipelineState::ClearPersistentBuffers()
+{
+    if (_splitScreen) {
+        _splitScreen->ClearPersistentBuffers();
+    } else if (_singlePipeline) {
+        _singlePipeline->ClearPersistentBuffers();
+    }
+}
+
 void RendererPipelineState::Execute(RenderContext& ctx)
 {
     if (_splitScreen != nullptr) {
-        _splitScreen->execute(ctx);
+        _splitScreen->Execute(ctx);
         return;
     }
 
     Expects(_singlePipeline != nullptr);
-    _singlePipeline->execute(ctx);
+    _singlePipeline->Execute(ctx);
 }
 
 RendererPipelineSettings MakeRendererPipelineSettings(
@@ -126,6 +143,14 @@ RendererPipelineSettings MakeRendererPipelineSettings(
                                        false),
         .OutputNames             = {requestedOutputNames.begin(), requestedOutputNames.end()},
     };
+}
+
+bool RendererPipelineState::IsConverged(int frameCount, int singleTarget) const noexcept
+{
+    if (_splitScreen) {
+        return _splitScreen->IsConverged();
+    }
+    return frameCount >= singleTarget;
 }
 
 TfToken GetPathTracerPipelineToken()        { return TfToken{"PathTracer"}; }

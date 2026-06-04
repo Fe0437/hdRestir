@@ -31,6 +31,13 @@ struct RISPipelineSettings {
     if (settings.PathTracer.ResolutionLevel > 0) {
         passSpecs.push_back(Detail::MakePassSpec<UpscalePass>(settings.PathTracer.OutputNames));
     }
+#if DEBUG_ENABLED
+    if (settings.PathTracer.DebugOverlay.Enable) {
+        auto cfg{settings.PathTracer.DebugOverlay};
+        cfg.Entries.push_back(DebugOverlayTextEntry{.Text = "RIS"});
+        passSpecs.push_back(Detail::MakePassSpec<DebugOverlayPass>(cfg));
+    }
+#endif
     return Detail::CompilePipeline(std::move(name), settings.PathTracer.OutputNames, std::move(passSpecs));
 }
 

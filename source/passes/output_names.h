@@ -5,7 +5,24 @@
 namespace Restir {
 
 inline constexpr std::string_view kGBufferOutputName{"GBuffer"};
+#if DEBUG_ENABLED
+inline constexpr std::string_view kPassTimingOutputName{"PassTiming"};
+inline constexpr std::string_view kPassSumTimingOutputName{"PassSumTiming"};
+inline constexpr std::string_view kVarianceOutputName{"Variance"};
+
+struct VarianceStats {
+    float mean{0.0f};
+    float max{0.0f};
+};
+#endif
 inline constexpr std::string_view kColorOutputName{"Color"};
+
+// Persistent accumulation buffers (internal to AccumulationPass, not pipeline AOV outputs).
+inline constexpr std::string_view kAccumColorBuf{"__accum_color"};
+#if METRICS_ENABLED
+inline constexpr std::string_view kAccumLumSumBuf  {"__accum_lum_sum"};
+inline constexpr std::string_view kAccumLumSumSqBuf{"__accum_lum_sum_sq"};
+#endif
 inline constexpr std::string_view kDepthOutputName{"Depth"};
 inline constexpr std::string_view kAlbedoOutputName{"Albedo"};
 inline constexpr std::string_view kNormalOutputName{"Normal"};

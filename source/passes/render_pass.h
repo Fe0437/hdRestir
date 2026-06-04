@@ -19,11 +19,14 @@ public:
     RenderPass(RenderPass&&) noexcept              = default;
     RenderPass& operator=(RenderPass&&) noexcept   = default;
 
-    virtual void Execute(RenderContext& ctx) = 0;
+    void Execute(RenderContext& ctx);
 
     [[nodiscard]] std::string_view name() const noexcept { return _name; }
     [[nodiscard]] virtual std::vector<std::string> Inputs() const = 0;
     [[nodiscard]] virtual std::vector<std::string> Outputs() const = 0;
+
+protected:
+    virtual void _execute(RenderContext& ctx) = 0;
 
     // Extension point: Epic 6 — full render-graph compile().
     // virtual void Setup(RenderGraphBuilder&) {}

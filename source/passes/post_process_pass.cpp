@@ -6,7 +6,7 @@
 
 namespace Restir {
 
-void PostProcessPass::Execute(RenderContext& ctx)
+void PostProcessPass::_execute(RenderContext& ctx)
 {
     DBG_ASSERT(ctx.buffers.Has(kColorOutputName), "Color must be present before PostProcessPass");
 
@@ -15,7 +15,7 @@ void PostProcessPass::Execute(RenderContext& ctx)
     }
 
     auto framebuffer{ctx.buf<GfVec4f>(kColorOutputName)};
-    PostProcess::Run(framebuffer, ctx.width, ctx.height, _config);
+    PostProcess::Run(framebuffer, ctx.frame.RenderedWidth(), ctx.frame.RenderedHeight(), _config);
 }
 
 }  // namespace Restir

@@ -213,6 +213,32 @@ def build(debug=False):
 
 # ── launch / capture ──────────────────────────────────────────────
 
+def _make_session_wrapper(scene_path, settings_path):
+    """Write a temporary USD file that sublayers scene + render settings.
+
+    The scene is the stronger sublayer so its opinions win on any conflicting
+    prims. The settings file adds /RenderSettings (with pipeline variants)
+    which the scene normally doesn't define, so there is no conflict.
+    The caller is responsible for deleting the returned path.
+    """
+    import tempfile
+    scene_abs    = os.path.abspath(scene_path)
+    settings_abs = os.path.abspath(settings_path)
+    content = (
+        "#usda 1.0\n"
+        "(\n"
+        "    subLayers = [\n"
+        f"        @{scene_abs}@,\n"
+        f"        @{settings_abs}@\n"
+        "    ]\n"
+        ")\n"
+    )
+    fd, path = tempfile.mkstemp(suffix=".usda", prefix="hdrestir_session_")
+    with os.fdopen(fd, "w") as f:
+        f.write(content)
+    return path
+
+
 def _get_launch_environment():
     venv_python, venv_site = setup_venv()
 
@@ -289,9 +315,13 @@ def launch(scene_path, *, render_settings=None):
         render_settings=render_settings or [],
     )
 
-    usdview = os.path.join(vcpkg_bin, "usdview")
-    # Invoke usdview with the project venv's Python (has PySide6)
-    run([venv_python, usdview, scene_path, "--renderer", "Restir"], env=env_vars)
+    usdview       = os.path.join(vcpkg_bin, "usdview")
+    settings_path = os.path.join(PROJECT_ROOT, "settings", "RenderSetup.usda")
+    wrapper_path  = _make_session_wrapper(scene_path, settings_path)
+    try:
+        run([venv_python, usdview, wrapper_path, "--renderer", "Restir"], env=env_vars)
+    finally:
+        os.unlink(wrapper_path)
 
 
 def capture(
@@ -328,13 +358,11 @@ def main():
     launch_parser = subparsers.add_parser("launch")
     launch_parser.add_argument("scene", nargs="?", default=os.path.join(PROJECT_ROOT, "example_scenes", "scene.usda"))
     launch_parser.add_argument("--render-setting", action="append", default=[])
-    launch_parser.add_argument("--ris", dest="enable_ris", action="store_true", default=False)
 
     capture_parser = subparsers.add_parser("capture")
     capture_parser.add_argument("scene", nargs="?", default=os.path.join(PROJECT_ROOT, "example_scenes", "scene.usda"))
     capture_parser.add_argument("output", nargs="?", default="capture.png")
     capture_parser.add_argument("--render-setting", action="append", default=[])
-    capture_parser.add_argument("--ris", dest="enable_ris", action="store_true", default=False)
 
     args = parser.parse_args()
     command = args.command or "build"
@@ -346,7 +374,6 @@ def main():
             if not separator or not token_name:
                 raise ValueError(f"Invalid --render-setting value: {item!r}. Expected token=value.")
             extra_render_settings.append((token_name, value))
-        extra_render_settings.append(("enableRis", "true" if args.enable_ris else "false"))
 
         launch(args.scene, render_settings=extra_render_settings)
         return
@@ -357,7 +384,6 @@ def main():
             if not separator or not token_name:
                 raise ValueError(f"Invalid --render-setting value: {item!r}. Expected token=value.")
             extra_render_settings.append((token_name, value))
-        extra_render_settings.append(("enableRis", "true" if args.enable_ris else "false"))
 
         capture(
             args.scene,

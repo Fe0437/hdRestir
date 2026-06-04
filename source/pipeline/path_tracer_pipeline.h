@@ -1,12 +1,17 @@
 #pragma once
 
 #include "accumulation_pass.h"
+#include "debug.h"
 #include "denoiser_pass.h"
 #include "path_trace_pass.h"
 #include "post_process_pass.h"
 #include "raycast_pass.h"
 #include "render_pipeline.h"
 #include "upscale_pass.h"
+
+#if DEBUG_ENABLED
+#include "debug_overlay_pass.h"
+#endif
 
 #include "output_names.h"
 
@@ -30,6 +35,9 @@ struct PathTracerPipelineSettings {
     PathTracePassSettings PathTrace{};
     Denoiser::Config      Denoiser{};
     PostProcess::Config   PostProcess{};
+#if DEBUG_ENABLED
+    DebugOverlayPass::Config DebugOverlay{};
+#endif
 };
 
 namespace Detail {
@@ -137,10 +145,11 @@ template<typename PassT, typename... Args>
     std::reverse(includedPassIndices.begin(), includedPassIndices.end());
 
     for (const auto passIndex : includedPassIndices) {
-        pipeline->add(passSpecs[passIndex].Create());
+        pipeline->Add(passSpecs[passIndex].Create());
     }
     return pipeline;
 }
+
 
 }  // namespace Detail
 
@@ -152,6 +161,13 @@ template<typename PassT, typename... Args>
     passSpecs.push_back(Detail::MakePassSpec<RaycastPass>(settings.OutputNames));
     passSpecs.push_back(Detail::MakePassSpec<PathTracePass>(settings.PathTrace, settings.MaxDepth));
     passSpecs.push_back(Detail::MakePassSpec<AccumulationPass>(settings.Denoiser.EnableFireflyFilter));
+#if DEBUG_ENABLED
+    if (settings.DebugOverlay.Enable) {
+        auto cfg{settings.DebugOverlay};
+        cfg.Entries.push_back(DebugOverlayTextEntry{.Text = "PathTracer"});
+        passSpecs.push_back(Detail::MakePassSpec<DebugOverlayPass>(cfg));
+    }
+#endif
     return Detail::CompilePipeline(std::move(name), settings.OutputNames, std::move(passSpecs));
 }
 
@@ -166,6 +182,13 @@ template<typename PassT, typename... Args>
     if (settings.ResolutionLevel > 0) {
         passSpecs.push_back(Detail::MakePassSpec<UpscalePass>(settings.OutputNames));
     }
+#if DEBUG_ENABLED
+    if (settings.DebugOverlay.Enable) {
+        auto cfg{settings.DebugOverlay};
+        cfg.Entries.push_back(DebugOverlayTextEntry{.Text = "PathTracer"});
+        passSpecs.push_back(Detail::MakePassSpec<DebugOverlayPass>(cfg));
+    }
+#endif
     return Detail::CompilePipeline(std::move(name), settings.OutputNames, std::move(passSpecs));
 }
 
@@ -182,6 +205,13 @@ template<typename PassT, typename... Args>
     if (settings.ResolutionLevel > 0) {
         passSpecs.push_back(Detail::MakePassSpec<UpscalePass>(settings.OutputNames));
     }
+#if DEBUG_ENABLED
+    if (settings.DebugOverlay.Enable) {
+        auto cfg{settings.DebugOverlay};
+        cfg.Entries.push_back(DebugOverlayTextEntry{.Text = "PathTracerPost"});
+        passSpecs.push_back(Detail::MakePassSpec<DebugOverlayPass>(cfg));
+    }
+#endif
     return Detail::CompilePipeline(std::move(name), settings.OutputNames, std::move(passSpecs));
 }
 

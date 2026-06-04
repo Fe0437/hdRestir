@@ -14,19 +14,19 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace Restir {
 
-void IntegrationPass::Execute(RenderContext& ctx)
+void IntegrationPass::_execute(RenderContext& ctx)
 {
     DBG_ASSERT(ctx.buffers.Has(kGBufferOutputName), "GBuffer must be present (produced by RaycastPass)");
 
-    const std::size_t count{gsl::narrow_cast<std::size_t>(ctx.width * ctx.height)};
+    const std::size_t count{ctx.frame.PixelCount()};
     ctx.buffers.Add(kColorOutputName, sizeof(GfVec4f), count);
     auto fb  {ctx.buf<GfVec4f>(kColorOutputName)};
     auto gbuf{ctx.buf<std::optional<HitRecord>>(kGBufferOutputName)};
 
     const GfMatrix4d invView    {ctx.viewMatrix.GetInverse()};
     const GfMatrix4d invProj    {ctx.projMatrix.GetInverse()};
-    const int        width      {ctx.width};
-    const int        height     {ctx.height};
+    const int        width      {ctx.frame.RenderedWidth()};
+    const int        height     {ctx.frame.RenderedHeight()};
     const int        frameIndex {ctx.frameIndex};
 
     constexpr int kTileSize{16};

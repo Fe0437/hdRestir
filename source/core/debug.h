@@ -13,24 +13,12 @@
 #  endif
 #endif
 
-#ifndef HDRESTIR_DEBUG_SETTING
-#  define HDRESTIR_DEBUG_SETTING 1
-#endif
-
 #ifndef DEBUG_ENABLED
-#  if defined(NDEBUG)
 #    define DEBUG_ENABLED 0
-#  else
-#    define DEBUG_ENABLED HDRESTIR_DEBUG_SETTING
-#  endif
-#endif
-
-#ifndef HDRESTIR_METRICS_SETTING
-#  define HDRESTIR_METRICS_SETTING DEBUG_ENABLED
 #endif
 
 #ifndef METRICS_ENABLED
-#  define METRICS_ENABLED HDRESTIR_METRICS_SETTING
+#  define METRICS_ENABLED DEBUG_ENABLED
 #endif
 
 #if defined(__cpp_lib_source_location) && (__cpp_lib_source_location >= 201907L) && defined(__has_include) && __has_include(<source_location>)

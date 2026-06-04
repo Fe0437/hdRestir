@@ -29,10 +29,11 @@ public:
     [[nodiscard]] std::vector<std::string> Inputs() const override { return {std::string{kColorOutputName}}; }
     [[nodiscard]] std::vector<std::string> Outputs() const override { return {std::string{kColorOutputName}}; }
 
-    void Execute(RenderContext& ctx) override;
 
     void SetConfig(Denoiser::Config config) { _config = config; }
 
+protected:
+    void _execute(RenderContext& ctx) override;
 private:
     Denoiser::Config _config{};
 };

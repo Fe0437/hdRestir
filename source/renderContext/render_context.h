@@ -1,5 +1,6 @@
 #pragma once
 
+#include "camera_frame.h"
 #include "camera_params.h"
 #include "frame_buffer_map.h"
 #include "rng.h"
@@ -10,6 +11,7 @@
 #include <gsl/gsl>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -20,10 +22,7 @@ struct RenderContext {
     gsl::not_null<const IScene*>           scene;
     const GfMatrix4d&                      viewMatrix;
     const GfMatrix4d&                      projMatrix;
-    int                                    width;
-    int                                    height;
-    int                                    outputWidth;
-    int                                    outputHeight;
+    CameraFrame                            frame;
     int                                    frameIndex;
     Rng&                                   rng;
     FrameBuffersMap                        buffers;

@@ -25,3 +25,4 @@ images/extra_scene_references/
 exploratory_tests/**/*.png
 exploratory_tests/**/*.log
 exploratory_tests/**/*.html
+build*

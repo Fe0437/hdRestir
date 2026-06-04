@@ -65,16 +65,16 @@ void UpscaleBuffer(FrameBuffersMap& buffers,
 
 }  // namespace
 
-void UpscalePass::Execute(RenderContext& ctx)
+void UpscalePass::_execute(RenderContext& ctx)
 {
-    if (ctx.width == ctx.outputWidth && ctx.height == ctx.outputHeight) {
+    if (!ctx.frame.NeedsUpscale()) {
         return;
     }
 
-    const int srcWidth{ctx.width};
-    const int srcHeight{ctx.height};
-    const int dstWidth{ctx.outputWidth};
-    const int dstHeight{ctx.outputHeight};
+    const int srcWidth {ctx.frame.RenderedWidth()};
+    const int srcHeight{ctx.frame.RenderedHeight()};
+    const int dstWidth {ctx.frame.windowWidth};
+    const int dstHeight{ctx.frame.windowHeight};
 
     for (const auto& outputName : Outputs()) {
         switch (GetOutputDataType(outputName)) {
@@ -93,8 +93,7 @@ void UpscalePass::Execute(RenderContext& ctx)
         }
     }
 
-    ctx.width = dstWidth;
-    ctx.height = dstHeight;
+    ctx.frame.MarkUpscaled();
 }
 
 }  // namespace Restir

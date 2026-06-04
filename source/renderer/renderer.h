@@ -71,6 +71,7 @@ private:
     Rng _rng{};
     std::unordered_map<TfToken, VtValue, TfToken::HashFunctor> _renderSettings;
     Camera _camera{};
+    bool   _integrandDirty{true};
 
     std::mutex _resolvedOutputsMutex;
     std::unordered_map<std::string, FrameBuffer> _resolvedOutputs;

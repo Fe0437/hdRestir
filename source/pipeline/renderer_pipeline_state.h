@@ -32,6 +32,8 @@ public:
     explicit RendererPipelineState(const RendererPipelineSettings& settings);
 
     void Execute(RenderContext& ctx);
+    void ClearPersistentBuffers();
+    [[nodiscard]] bool IsConverged(int frameCount, int singleTarget) const noexcept;
 
 private:
     std::unique_ptr<RenderPipeline>       _singlePipeline{};

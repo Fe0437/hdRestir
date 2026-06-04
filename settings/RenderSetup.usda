@@ -1,0 +1,84 @@
+#usda 1.0
+(
+    defaultPrim = "RenderSettings"
+)
+
+def RenderSettings "RenderSettings" (
+    variants = {
+        string pipelineMode = "PathTracer"
+        string splitScreenRightPipelineMode = "PathTracerPostProcess"
+    }
+    prepend variantSets = ["pipelineMode", "splitScreenRightPipelineMode"]
+)
+{
+    # --- Global settings (apply regardless of pipeline) ----------------------
+    int   restir:targetSampleCount                  = 32
+    int   restir:splitScreen:targetSampleCount      = 32
+    int   restir:resolutionLevel                    = 2
+    bool  restir:splitScreen:enable                 = false
+
+    # Camera
+    bool  restir:camera:depthOfField          = false
+    float restir:camera:focalLength           = 50
+    float restir:camera:fStop                 = 5.6
+    float restir:camera:focusDistance         = 10
+    int   restir:camera:bokehBlades           = 0
+    bool  restir:camera:physicalExposure      = false
+    float restir:camera:iso                   = 100
+    float restir:camera:shutterSpeed          = 0.02
+
+    # Sky
+    bool  restir:sky:enable                   = false
+    float restir:sky:timeOfDay                = 12
+
+    # Debug
+    bool  restir:debug:overlay                = false
+
+    # --- Pipeline variants ---------------------------------------------------
+    variantSet "pipelineMode" = {
+        "PathTracer" {
+            token restir:primaryPipeline            = "PathTracer"
+            bool  restir:path:enableSubsurface      = true
+            int   restir:path:maxReflectionBounces  = 8
+            int   restir:path:maxRefractionBounces  = 8
+            bool  restir:path:renderIblBackground   = true
+        }
+        "PathTracerPostProcess" {
+            token restir:primaryPipeline              = "PathTracerPostProcess"
+            bool  restir:path:enableSubsurface        = true
+            int   restir:path:maxReflectionBounces    = 8
+            int   restir:path:maxRefractionBounces    = 8
+            bool  restir:path:renderIblBackground     = true
+            bool  restir:denoiser:enable              = true
+            bool  restir:denoiser:fireflyFilter       = true
+            bool  restir:denoiser:chromaticityBlur    = true
+            bool  restir:postProcess:lensFlare        = false
+            float restir:postProcess:lensDistortion   = 0
+            float restir:postProcess:chromaticAberration = 0
+        }
+        "RIS" {
+            token restir:primaryPipeline              = "RIS"
+            bool  restir:path:enableSubsurface        = true
+            int   restir:path:maxReflectionBounces    = 8
+            int   restir:path:maxRefractionBounces    = 8
+            bool  restir:path:renderIblBackground     = true
+            bool  restir:denoiser:enable              = true
+            bool  restir:denoiser:fireflyFilter       = true
+            bool  restir:denoiser:chromaticityBlur    = true
+            int   restir:ris:candidateCount           = 16
+        }
+    }
+
+    # --- Split-screen right pipeline variants --------------------------------
+    variantSet "splitScreenRightPipelineMode" = {
+        "PathTracer" {
+            token restir:splitScreen:rightPipeline = "PathTracer"
+        }
+        "PathTracerPostProcess" {
+            token restir:splitScreen:rightPipeline = "PathTracerPostProcess"
+        }
+        "RIS" {
+            token restir:splitScreen:rightPipeline = "RIS"
+        }
+    }
+}

@@ -2,6 +2,7 @@
 #include "frame_buffer_map.h"
 #include "output_names.h"
 #include "render_context.h"
+#include "renderer_pipeline_state.h"
 #include "restir_aov_tokens.h"
 #include "restir_render_settings.h"
 #include <cstdint>
@@ -162,75 +163,19 @@ void ApplyEnvironmentOverrides(
     }
 }
 
-void SyncRisRenderSettings(
-    std::unordered_map<TfToken, VtValue, TfToken::HashFunctor>& renderSettings,
-    const TfToken& changedKey)
+
+[[nodiscard]] gsl::span<const Restir::Renderer::RenderOptionSpec> GetRenderOptionSpecsArray()
 {
-    if (changedKey == HdRestirRenderSettingsTokens->enableRis) {
-        const auto it{renderSettings.find(HdRestirRenderSettingsTokens->enableRis)};
-        if (it == renderSettings.end() || !it->second.IsHolding<bool>()) {
-            return;
-        }
-
-        renderSettings.insert_or_assign(
-            HdRestirRenderSettingsTokens->primaryPipeline,
-            VtValue{it->second.Get<bool>() ? Restir::GetRISPipelineToken()
-                                           : Restir::GetPathTracerPipelineToken()});
-        return;
-    }
-
-    if (changedKey == HdRestirRenderSettingsTokens->primaryPipeline) {
-        const auto it{renderSettings.find(HdRestirRenderSettingsTokens->primaryPipeline)};
-        if (it == renderSettings.end() || !it->second.IsHolding<TfToken>()) {
-            return;
-        }
-
-        renderSettings.insert_or_assign(
-            HdRestirRenderSettingsTokens->enableRis,
-            VtValue{it->second.Get<TfToken>() == Restir::GetRISPipelineToken()});
-    }
-}
-
-[[nodiscard]] const std::array<Restir::Renderer::RenderOptionSpec, 27>& GetRenderOptionSpecsArray()
-{
-    static const std::array<Restir::Renderer::RenderOptionSpec, 27> specs{{
-        {"Enable Split Screen", HdRestirRenderSettingsTokens->enableSplitScreen, VtValue(false)},
-        {"Enable RIS", HdRestirRenderSettingsTokens->enableRis, VtValue(false)},
-        {"Primary Pipeline", HdRestirRenderSettingsTokens->primaryPipeline, VtValue(Restir::GetPathTracerPipelineToken()), /*Hidden=*/true},
-        {"Split Screen Right Pipeline", HdRestirRenderSettingsTokens->splitScreenRightPipeline, VtValue(Restir::GetPathTracerPostProcessPipelineToken())},
-        {"Enable Subsurface Scattering", HdRestirRenderSettingsTokens->enableSubsurface, VtValue(true)},
-        {"Enable OIDN Denoiser", HdRestirRenderSettingsTokens->enableDenoiser, VtValue(true)},
-        {"Enable Pre-Pass: Firefly Filter", HdRestirRenderSettingsTokens->enableFireflyFilter, VtValue(true)},
-        {"Enable Pre-Pass: Chromaticity Blur", HdRestirRenderSettingsTokens->enableChromaticityBlur, VtValue(true)},
-        {"Target Sample Count", HdRestirRenderSettingsTokens->targetSampleCount, VtValue(32)},
-        {"RIS Candidate Count", HdRestirRenderSettingsTokens->risCandidateCount, VtValue(16)},
-        {"Max Reflection Bounces", HdRestirRenderSettingsTokens->maxReflectionBounces, VtValue(8)},
-        {"Max Refraction Bounces", HdRestirRenderSettingsTokens->maxRefractionBounces, VtValue(8)},
-        {"Resolution Level", HdRestirRenderSettingsTokens->resolutionLevel, VtValue(2)},
-        {"Enable Depth of Field", HdRestirRenderSettingsTokens->enableDoF, VtValue(false)},
-        {"Focal Length (mm)", HdRestirRenderSettingsTokens->focalLength, VtValue(50.0f)},
-        {"F-Stop (Aperture)", HdRestirRenderSettingsTokens->fStop, VtValue(5.6f)},
-        {"Focus Distance", HdRestirRenderSettingsTokens->focusDistance, VtValue(10.0f)},
-        {"Bokeh Blades", HdRestirRenderSettingsTokens->bokehBlades, VtValue(0)},
-        {"Enable Physical Camera Exposure", HdRestirRenderSettingsTokens->enablePhysicalCamera, VtValue(false)},
-        {"ISO", HdRestirRenderSettingsTokens->iso, VtValue(100.0f)},
-        {"Shutter Speed", HdRestirRenderSettingsTokens->shutterSpeed, VtValue(0.02f)},
-        {"Enable Lens Flare", HdRestirRenderSettingsTokens->enableLensFlare, VtValue(false)},
-        {"Render IBL Background", HdRestirRenderSettingsTokens->renderIblBackground, VtValue(true)},
-        {"Lens Distortion", HdRestirRenderSettingsTokens->lensDistortion, VtValue(0.0f)},
-        {"Chromatic Aberration", HdRestirRenderSettingsTokens->chromaticAberration, VtValue(0.0f)},
-        {"Enable Physical Sky", HdRestirRenderSettingsTokens->physicalSkyEnable, VtValue(false)},
-        {"Physical Sky Time of Day", HdRestirRenderSettingsTokens->physicalSkyTime, VtValue(12.0f)},
-    }};
+    static const Restir::Renderer::RenderOptionSpec specs[] = {
+        HD_RESTIR_RENDER_SETTINGS_SPECS(Restir::Renderer::RenderOptionSpec)
+    };
     return specs;
 }
 
 [[nodiscard]] const Restir::Renderer::RenderOptionSpec* FindRenderOptionSpec(const TfToken& key)
 {
     for (const auto& spec : GetRenderOptionSpecsArray()) {
-        if (spec.Token == key) {
-            return &spec;
-        }
+        if (spec.Token == key) { return &spec; }
     }
     return nullptr;
 }
@@ -286,7 +231,6 @@ Restir::Renderer::Renderer()
         _renderSettings.insert_or_assign(spec.Token, spec.DefaultValue);
     }
     ApplyEnvironmentOverrides(_renderSettings, specs);
-    SyncRisRenderSettings(_renderSettings, HdRestirRenderSettingsTokens->primaryPipeline);
     _pipelineState = std::make_unique<Restir::RendererPipelineState>(
         Restir::MakeRendererPipelineSettings(_renderSettings, _requestedOutputNames));
 #ifdef HdRestir_HAS_OIDN
@@ -298,8 +242,7 @@ Restir::Renderer::Renderer()
 
 Restir::Renderer::~Renderer() = default;
 
-gsl::span<const Restir::Renderer::RenderOptionSpec>
-Restir::Renderer::GetRenderOptionSpecs()
+gsl::span<const Restir::Renderer::RenderOptionSpec> Restir::Renderer::GetRenderOptionSpecs()
 {
     return GetRenderOptionSpecsArray();
 }
@@ -330,7 +273,25 @@ Restir::Renderer::SetRenderSetting(const TfToken& key, const VtValue& value)
     }
 
     _renderSettings.insert_or_assign(key, normalized);
-    SyncRisRenderSettings(_renderSettings, key);
+
+    auto indexToToken = [](int idx) -> TfToken {
+        if (idx == 1) return GetPathTracerPostProcessPipelineToken();
+        if (idx == 2) return GetRISPipelineToken();
+        return GetPathTracerPipelineToken();
+    };
+
+    if (key == HdRestirRenderSettingsTokens->pipelineIndex) {
+        _renderSettings.insert_or_assign(
+            HdRestirRenderSettingsTokens->primaryPipeline,
+            VtValue{indexToToken(normalized.Get<int>())});
+    }
+
+    if (key == HdRestirRenderSettingsTokens->splitScreenRightPipelineIndex) {
+        _renderSettings.insert_or_assign(
+            HdRestirRenderSettingsTokens->splitScreenRightPipeline,
+            VtValue{indexToToken(normalized.Get<int>())});
+    }
+
     return true;
 }
 
@@ -355,13 +316,16 @@ Restir::Renderer::SetCamera(const GfMatrix4d& viewMatrix, const GfMatrix4d& proj
     _camera.ProjMatrix = projMatrix;
     _camera.InverseViewMatrix = viewMatrix.GetInverse();
     _camera.InverseProjMatrix = projMatrix.GetInverse();
+    _integrandDirty = true;
 }
 
 void
 Restir::Renderer::SetDataWindow(const GfRect2i& dataWindow)
 {
     _camera.DataWindow = dataWindow;
+    _integrandDirty = true;
 }
+
 
 void
 Restir::Renderer::Render(const Restir::IRenderJob& job,
@@ -374,6 +338,14 @@ Restir::Renderer::Render(const Restir::IRenderJob& job,
     if (width <= 0 || height <= 0) {
         return;
     }
+
+    if (_integrandDirty) {
+        _pipelineState->ClearPersistentBuffers();
+        _camera.FrameCount = 0;
+        _integrandDirty = false;
+    }
+    const int windowWidth {width};
+    const int windowHeight{height};
 
     scene.BuildRenderState(Restir::SceneBuildRenderStateConfig{
         .EnablePhysicalSky = GetRenderSetting(HdRestirRenderSettingsTokens->physicalSkyEnable).Get<bool>(),
@@ -392,13 +364,18 @@ Restir::Renderer::Render(const Restir::IRenderJob& job,
     };
     std::vector<std::string> outputNames{_requestedOutputNames.begin(), _requestedOutputNames.end()};
     Restir::RenderContext ctx{
-        .scene = &scene,
+        .scene      = &scene,
         .viewMatrix = _camera.ViewMatrix,
         .projMatrix = _camera.ProjMatrix,
-        .width = width,
-        .height = height,
-        .outputWidth = width,
-        .outputHeight = height,
+        .frame      = Restir::CameraFrame{
+            .windowWidth     = windowWidth,
+            .windowHeight    = windowHeight,
+            .resolutionLevel = 0,
+            .visibleMinX     = 0,
+            .visibleMinY     = 0,
+            .visibleMaxX     = windowWidth,
+            .visibleMaxY     = windowHeight,
+        },
         .frameIndex = _camera.FrameCount,
         .rng = _rng,
         .buffers = Restir::FrameBuffersMap{},
@@ -442,6 +419,7 @@ Restir::Renderer::Clear()
     _pipelineState = std::make_unique<Restir::RendererPipelineState>(
         Restir::MakeRendererPipelineSettings(_renderSettings, _requestedOutputNames));
     _camera.FrameCount = 0;
+    _integrandDirty = true;
     std::lock_guard<std::mutex> lock{_resolvedOutputsMutex};
     _resolvedOutputs.clear();
 }
@@ -513,5 +491,6 @@ Restir::Renderer::ResolveTargets(gsl::span<const Restir::AovBinding> aovBindings
 }
 
 bool Restir::Renderer::IsConverged() const {
-        return _camera.FrameCount >= GetRenderSetting(HdRestirRenderSettingsTokens->targetSampleCount).Get<int>();
-    }
+    const int target {GetRenderSetting(HdRestirRenderSettingsTokens->targetSampleCount).Get<int>()};
+    return _pipelineState->IsConverged(_camera.FrameCount, target);
+}

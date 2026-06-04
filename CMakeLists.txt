@@ -4,8 +4,30 @@ project(HdRestir LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-option(DEBUG_ENABLED "Enable HdRestir debug macros (asserts, logs, named objects)" ON)
-option(METRICS_ENABLED "Enable HdRestir runtime metrics (variance logging, counters)" ON)
+# ----------------------------------------------------------------
+# Default build type — RelWithDebInfo, not Debug.
+#
+# The vcpkg OpenUSD packages ship Release-only dylibs. A pure Debug
+# build would fail to link because the matching debug USD dylibs do
+# not exist. RelWithDebInfo links against those Release dylibs while
+# still producing full debug symbols and enabling our own debug
+# assertions and logging (DEBUG_ENABLED below). Never change this
+# default to Debug without first building OpenUSD in debug mode.
+# ----------------------------------------------------------------
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "RelWithDebInfo"
+        CACHE STRING "Build type: Debug / RelWithDebInfo / Release / MinSizeRel" FORCE)
+endif()
+
+# DEBUG_ENABLED is ON for development build types (Debug and
+# RelWithDebInfo) and OFF for Release / MinSizeRel.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    set(_debug_default ON)
+else()
+    set(_debug_default OFF)
+endif()
+option(DEBUG_ENABLED  "Enable HdRestir debug macros (asserts, logs, named objects)" ${_debug_default})
+option(METRICS_ENABLED "Enable HdRestir runtime metrics (variance logging, counters)" ${_debug_default})
 
 set(CMAKE_MACOSX_RPATH ON)
 
@@ -58,21 +80,11 @@ set_source_files_properties(
     COMPILE_OPTIONS "-Wno-deprecated-declarations"
 )
 
-if(DEBUG_ENABLED)
-    set(HDRESTIR_DEBUG_SETTING_VALUE 1)
-else()
-    set(HDRESTIR_DEBUG_SETTING_VALUE 0)
-endif()
-
-if(METRICS_ENABLED)
-    set(HDRESTIR_METRICS_SETTING_VALUE 1)
-else()
-    set(HDRESTIR_METRICS_SETTING_VALUE 0)
-endif()
-
 target_compile_definitions(HdRestir PRIVATE
-    HDRESTIR_DEBUG_SETTING=${HDRESTIR_DEBUG_SETTING_VALUE}
-    HDRESTIR_METRICS_SETTING=${HDRESTIR_METRICS_SETTING_VALUE}
+    $<$<BOOL:${DEBUG_ENABLED}>:DEBUG_ENABLED=1>
+    $<$<NOT:$<BOOL:${DEBUG_ENABLED}>>:DEBUG_ENABLED=0>
+    $<$<BOOL:${METRICS_ENABLED}>:METRICS_ENABLED=1>
+    $<$<NOT:$<BOOL:${METRICS_ENABLED}>>:METRICS_ENABLED=0>
 )
 
 # USD vcpkg exports without pxr:: namespace.
@@ -98,7 +110,7 @@ target_link_libraries(HdRestir PRIVATE
 )
 
 target_compile_definitions(HdRestir PRIVATE
-    $<$<CONFIG:Debug>:gsl_CONFIG_CONTRACT_VIOLATION_THROWS=1>
+    $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:gsl_CONFIG_CONTRACT_VIOLATION_THROWS=1>
 )
 
 if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")

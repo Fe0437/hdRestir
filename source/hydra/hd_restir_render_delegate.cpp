@@ -2,6 +2,7 @@
 #include "hd_restir_render_param.h"
 #include "hd_restir_render_pass.h"
 #include "hd_restir_render_buffer.h"
+#include "hd_restir_render_settings_bprim.h"
 #include "hd_restir_mesh.h"
 #include "hd_restir_instancer.h"
 #include "hd_restir_light.h"
@@ -38,6 +39,7 @@ const TfTokenVector HdRestirRenderDelegate::SUPPORTED_SPRIM_TYPES =
 const TfTokenVector HdRestirRenderDelegate::SUPPORTED_BPRIM_TYPES =
 {
     HdPrimTypeTokens->renderBuffer,
+    HdPrimTypeTokens->renderSettings,
 };
 
 std::mutex HdRestirRenderDelegate::_mutexResourceRegistry;
@@ -259,6 +261,9 @@ HdRestirRenderDelegate::CreateBprim(TfToken const& typeId,
         auto bPrim{std::make_unique<HdRestirRenderBuffer>(bprimId)};
         return bPrim.release();
     }
+    if (typeId == HdPrimTypeTokens->renderSettings) {
+        return new HdRestirRenderSettingsBprim(bprimId, this);
+    }
     return nullptr;
 }
 
@@ -269,6 +274,9 @@ HdRestirRenderDelegate::CreateFallbackBprim(TfToken const& typeId)
     if (typeId == HdPrimTypeTokens->renderBuffer) {
         auto bPrim{std::make_unique<HdRestirRenderBuffer>(SdfPath::EmptyPath())};
         return bPrim.release();
+    }
+    if (typeId == HdPrimTypeTokens->renderSettings) {
+        return new HdRestirRenderSettingsBprim(SdfPath::EmptyPath(), this);
     }
     return nullptr;
 }
@@ -338,6 +346,9 @@ HdRestirRenderDelegate::SetRenderSetting(TfToken const& key, VtValue const& valu
     if (changed) {
         _renderThread.StopRender();
         _renderer.Clear();
+        // Bump the scene version so _Execute detects the change on its next
+        // call and restarts the render thread with the rebuilt pipeline.
+        _sceneVersion.fetch_add(1, std::memory_order_relaxed);
     }
     
     HdRenderDelegate::SetRenderSetting(key, normalized);

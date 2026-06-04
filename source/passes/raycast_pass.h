@@ -22,8 +22,9 @@ public:
     [[nodiscard]] std::vector<std::string> Inputs() const override { return {}; }
     [[nodiscard]] std::vector<std::string> Outputs() const override;
 
-    void Execute(RenderContext& ctx) override;
 
+protected:
+    void _execute(RenderContext& ctx) override;
 private:
     std::vector<std::string> _requestedOutputs;
 };

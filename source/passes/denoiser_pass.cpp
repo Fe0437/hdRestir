@@ -10,7 +10,7 @@
 
 namespace Restir {
 
-void DenoiserPass::Execute(RenderContext& ctx)
+void DenoiserPass::_execute(RenderContext& ctx)
 {
     DBG_ASSERT(ctx.buffers.Has(kColorOutputName), "Color must be present before DenoiserPass");
 
@@ -35,7 +35,7 @@ void DenoiserPass::Execute(RenderContext& ctx)
         });
     }
 
-    Denoiser::Run(colorBuffer, guideBuffers, ctx.width, ctx.height, ctx.frameIndex, _config);
+    Denoiser::Run(colorBuffer, guideBuffers, ctx.frame.RenderedWidth(), ctx.frame.RenderedHeight(), ctx.frameIndex, _config);
 }
 
 }  // namespace Restir

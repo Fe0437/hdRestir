@@ -1,3 +1,4 @@
+#include "camera_frame.h"
 #include "split_screen.h"
 
 #include "output_names.h"
@@ -100,10 +101,13 @@ void TestUpscalePassUpscalesLowResolutionInputs()
         .scene = &stubScene,
         .viewMatrix = GfMatrix4d(1.0),
         .projMatrix = GfMatrix4d(1.0),
-        .width = srcWidth,
-        .height = srcHeight,
-        .outputWidth = dstWidth,
-        .outputHeight = dstHeight,
+        .frame = Restir::CameraFrame{
+            .windowWidth     = dstWidth,
+            .windowHeight    = dstHeight,
+            .resolutionLevel = 1,  // half-res: RenderedWidth=2, RenderedHeight=1
+            .visibleMaxX     = dstWidth,
+            .visibleMaxY     = dstHeight,
+        },
         .frameIndex = 0,
         .rng = rng,
         .buffers = Restir::FrameBuffersMap{},
@@ -124,8 +128,9 @@ void TestUpscalePassUpscalesLowResolutionInputs()
     Restir::UpscalePass pass{{std::string{Restir::kColorOutputName}, std::string{Restir::kAlbedoOutputName}}};
     pass.Execute(ctx);
 
-    assert(ctx.width == dstWidth);
-    assert(ctx.height == dstHeight);
+    assert(!ctx.frame.NeedsUpscale());
+    assert(ctx.frame.RenderedWidth()  == dstWidth);
+    assert(ctx.frame.RenderedHeight() == dstHeight);
 
     const std::vector<GfVec4f> expectedFramebuffer{
         GfVec4f(1.0f, 0.0f, 0.0f, 1.0f),
@@ -168,10 +173,10 @@ void TestPathTracerPipelinesMatch()
         .scene = &stubScene,
         .viewMatrix = GfMatrix4d(1.0),
         .projMatrix = GfMatrix4d(1.0),
-        .width = width,
-        .height = height,
-        .outputWidth = width,
-        .outputHeight = height,
+        .frame = Restir::CameraFrame{
+            .windowWidth = width, .windowHeight = height,
+            .visibleMaxX = width, .visibleMaxY = height,
+        },
         .frameIndex = 0,
         .rng = rng,
         .buffers = Restir::FrameBuffersMap{},
@@ -182,7 +187,7 @@ void TestPathTracerPipelinesMatch()
         Restir::makePathTracerPipeline("Left"),
         Restir::makePathTracerPipeline("Right")
     };
-    compositor.execute(ctx);
+    compositor.Execute(ctx);
 
     auto framebuffer = ctx.buf<GfVec4f>(Restir::kColorOutputName);
     assert(framebuffer.size() == count);
@@ -194,7 +199,7 @@ void TestPathTracerPipelinesMatch()
             if (x == splitX) {
                 assert(IsWhite(framebuffer[idx]));
             } else {
-                assert(framebuffer[idx] == GfVec4f(0.25f, 0.5f, 0.75f, 1.0f));
+                assert(framebuffer[idx] == GfVec4f(0.0f, 0.0f, 0.0f, 1.0f));
             }
         }
     }
@@ -216,17 +221,17 @@ void TestOptionalOutputsWithoutFramebuffer()
         .scene = &stubScene,
         .viewMatrix = GfMatrix4d(1.0),
         .projMatrix = GfMatrix4d(1.0),
-        .width = 4,
-        .height = 4,
-        .outputWidth = 4,
-        .outputHeight = 4,
+        .frame = Restir::CameraFrame{
+            .windowWidth = 4, .windowHeight = 4,
+            .visibleMaxX = 4, .visibleMaxY = 4,
+        },
         .frameIndex = 0,
         .rng = rng,
         .buffers = Restir::FrameBuffersMap{},
         .OutputNames = {std::string{Restir::kAlbedoOutputName}}
     };
 
-    compositor.execute(ctx);
+    compositor.Execute(ctx);
 
     assert(!ctx.buffers.Has(Restir::kColorOutputName));
     assert(ctx.buffers.Has(Restir::kAlbedoOutputName));
@@ -248,17 +253,17 @@ void TestOptionalDepthOutputWithoutColor()
         .scene = &stubScene,
         .viewMatrix = GfMatrix4d(1.0),
         .projMatrix = GfMatrix4d(1.0),
-        .width = 4,
-        .height = 4,
-        .outputWidth = 4,
-        .outputHeight = 4,
+        .frame = Restir::CameraFrame{
+            .windowWidth = 4, .windowHeight = 4,
+            .visibleMaxX = 4, .visibleMaxY = 4,
+        },
         .frameIndex = 0,
         .rng = rng,
         .buffers = Restir::FrameBuffersMap{},
         .OutputNames = {std::string{Restir::kDepthOutputName}}
     };
 
-    compositor.execute(ctx);
+    compositor.Execute(ctx);
 
     assert(!ctx.buffers.Has(Restir::kColorOutputName));
     assert(ctx.buffers.Has(Restir::kDepthOutputName));
@@ -280,17 +285,17 @@ void TestUnsupportedOutputDoesNotCrash()
         .scene = &stubScene,
         .viewMatrix = GfMatrix4d(1.0),
         .projMatrix = GfMatrix4d(1.0),
-        .width = 4,
-        .height = 4,
-        .outputWidth = 4,
-        .outputHeight = 4,
+        .frame = Restir::CameraFrame{
+            .windowWidth = 4, .windowHeight = 4,
+            .visibleMaxX = 4, .visibleMaxY = 4,
+        },
         .frameIndex = 0,
         .rng = rng,
         .buffers = Restir::FrameBuffersMap{},
         .OutputNames = {std::string{"Unsupported"}}
     };
 
-    compositor.execute(ctx);
+    compositor.Execute(ctx);
 
     assert(!ctx.buffers.Has("Unsupported"));
 }

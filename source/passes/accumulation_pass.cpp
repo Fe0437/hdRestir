@@ -49,66 +49,64 @@ void ApplyFireflySuppression(gsl::span<GfVec4f> framebuffer, int width, int heig
     }
 }
 
-#if METRICS_ENABLED
-[[nodiscard]] bool ShouldLogEstimatorVariance(int sampleCount)
-{
-    return sampleCount >= 16 && ((sampleCount & (sampleCount - 1)) == 0);
-}
-#endif
 
 }  // namespace
 
-void AccumulationPass::Execute(RenderContext& ctx)
+void AccumulationPass::_execute(RenderContext& ctx)
 {
-    const int         width  = ctx.width;
-    const int         height = ctx.height;
+    const int         width  = ctx.frame.RenderedWidth();
+    const int         height = ctx.frame.RenderedHeight();
     const std::size_t count  = gsl::narrow_cast<std::size_t>(width * height);
 
-    const bool cameraChanged = (ctx.viewMatrix != _lastViewMatrix ||
-                                ctx.projMatrix != _lastProjMatrix);
-    const bool sizeChanged   = (width != _lastWidth || height != _lastHeight);
-
-    if (cameraChanged || sizeChanged) {
-        Reset();
-    }
-
-    if (_accumulator.size() != count) {
-        _accumulator.assign(count, GfVec4f{0.0f, 0.0f, 0.0f, 0.0f});
-        _sampleCount = 0;
-#if METRICS_ENABLED
-        _luminanceSum.assign(count, 0.0);
-        _luminanceSumSquares.assign(count, 0.0);
-#endif
-    }
-
     DBG_ASSERT(ctx.buffers.Has(kColorOutputName), "Color must be present (produced by PathTracePass)");
-    auto fb{ ctx.buf<GfVec4f>(kColorOutputName) };
+    auto fb{ctx.buf<GfVec4f>(kColorOutputName)};
 
     if (_enableFireflyFilter) {
         ApplyFireflySuppression(fb, width, height);
     }
 
-    ++_sampleCount;
-    const float invN = 1.0f / static_cast<float>(_sampleCount);
+    const int   sampleCount{ctx.frameIndex + 1};
+    const float invN{1.0f / static_cast<float>(sampleCount)};
+
+#if DEBUG_ENABLED
+    if (ctx.buffers.Has(kPassTimingOutputName)) {
+        auto timings{ctx.buf<float>(kPassTimingOutputName)};
+        ctx.buffers.AddOrGetPersistent(kPassSumTimingOutputName, sizeof(float), timings.size());
+        auto sumData{ctx.buf<float>(kPassSumTimingOutputName)};
+        for (std::size_t i = 0; i < timings.size(); ++i) {
+            sumData[i] += timings[i];
+        }
+    }
+#endif
+
+    ctx.buffers.AddOrGetPersistent(kAccumColorBuf, sizeof(GfVec4f), count);
+    auto accum{ctx.buf<GfVec4f>(kAccumColorBuf)};
+
+#if METRICS_ENABLED
+    ctx.buffers.AddOrGetPersistent(kAccumLumSumBuf,   sizeof(double), count);
+    ctx.buffers.AddOrGetPersistent(kAccumLumSumSqBuf, sizeof(double), count);
+    auto lumSum  {ctx.buf<double>(kAccumLumSumBuf)};
+    auto lumSumSq{ctx.buf<double>(kAccumLumSumSqBuf)};
+#endif
+
     for (std::size_t i = 0; i < count; ++i) {
 #if METRICS_ENABLED
         const double luminance{static_cast<double>(GetLuminance(fb[i]))};
-        _luminanceSum[i] += luminance;
-        _luminanceSumSquares[i] += luminance * luminance;
+        lumSum[i]   += luminance;
+        lumSumSq[i] += luminance * luminance;
 #endif
-        _accumulator[i] += fb[i];
-        fb[i] = _accumulator[i] * invN;
+        accum[i] += fb[i];
+        fb[i] = accum[i] * invN;
     }
 
 #if METRICS_ENABLED
-    if (ShouldLogEstimatorVariance(_sampleCount)) {
+    if (sampleCount >= 2) {
         double meanEstimatorVariance{0.0};
         double maxEstimatorVariance{0.0};
         for (std::size_t i = 0; i < count; ++i) {
-            const double n{static_cast<double>(_sampleCount)};
-            const double mean{_luminanceSum[i] / n};
-            const double centeredSumSquares{
-                _luminanceSumSquares[i] - n * mean * mean};
+            const double n{static_cast<double>(sampleCount)};
+            const double mean{lumSum[i] / n};
+            const double centeredSumSquares{lumSumSq[i] - n * mean * mean};
             const double sampleVariance{std::max(0.0, centeredSumSquares / (n - 1.0))};
             const double estimatorVariance{sampleVariance / n};
             meanEstimatorVariance += estimatorVariance;
@@ -116,27 +114,18 @@ void AccumulationPass::Execute(RenderContext& ctx)
         }
 
         meanEstimatorVariance /= static_cast<double>(count);
-    METRICS_LOG(
+        METRICS_LOG(
             "AccumulationPass: samples=%d mean estimator variance=%g max estimator variance=%g",
-            _sampleCount,
+            sampleCount,
             meanEstimatorVariance,
             maxEstimatorVariance);
+
+        ctx.buffers.AddOrGetPersistent(kVarianceOutputName, sizeof(VarianceStats), 1);
+        ctx.buf<VarianceStats>(kVarianceOutputName)[0] = VarianceStats{
+            .mean = static_cast<float>(meanEstimatorVariance),
+            .max  = static_cast<float>(maxEstimatorVariance),
+        };
     }
-#endif
-
-    _lastViewMatrix = ctx.viewMatrix;
-    _lastProjMatrix = ctx.projMatrix;
-    _lastWidth      = width;
-    _lastHeight     = height;
-}
-
-void AccumulationPass::Reset() noexcept
-{
-    _accumulator.clear();
-    _sampleCount = 0;
-#if METRICS_ENABLED
-    _luminanceSum.clear();
-    _luminanceSumSquares.clear();
 #endif
 }
 

@@ -8,6 +8,7 @@
 #include <gsl/gsl>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 namespace Restir {
 
@@ -16,9 +17,13 @@ public:
     SplitScreenCompositor(std::unique_ptr<RenderPipeline> left,
                           std::unique_ptr<RenderPipeline> right,
                           int leftResolutionLevel = 0,
-                          int rightResolutionLevel = 0);
+                          int rightResolutionLevel = 0,
+                          int leftTargetSamples   = 32,
+                          int rightTargetSamples  = 32);
 
-    void execute(RenderContext& baseCtx);
+    void Execute(RenderContext& baseCtx);
+    void ClearPersistentBuffers();
+    [[nodiscard]] bool IsConverged() const noexcept;
 
     void swapSides() noexcept;
     void setSplitPosition(float t) noexcept;
@@ -34,19 +39,25 @@ public:
 
 #if DEBUG_ENABLED
     [[nodiscard]] std::string_view leftName() const noexcept {
-        return _left ? _left->name() : std::string_view{};
+        return _left ? _left->Name() : std::string_view{};
     }
 
     [[nodiscard]] std::string_view rightName() const noexcept {
-        return _right ? _right->name() : std::string_view{};
+        return _right ? _right->Name() : std::string_view{};
     }
 #endif
 
 private:
     std::unique_ptr<RenderPipeline> _left;
     std::unique_ptr<RenderPipeline> _right;
-    int _leftResolutionLevel{0};
-    int _rightResolutionLevel{0};
+    int   _leftResolutionLevel{0};
+    int   _rightResolutionLevel{0};
+    int   _leftTargetSamples{32};
+    int   _rightTargetSamples{32};
+    int   _leftFrameIndex{0};
+    int   _rightFrameIndex{0};
+    std::vector<GfVec4f> _leftFrozenColor;
+    std::vector<GfVec4f> _rightFrozenColor;
     float _splitT{0.5f};
 
     static void blit(gsl::span<GfVec4f> dst,

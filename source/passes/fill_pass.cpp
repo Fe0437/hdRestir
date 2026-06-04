@@ -6,9 +6,9 @@
 
 namespace Restir {
 
-void FillPass::Execute(RenderContext& ctx)
+void FillPass::_execute(RenderContext& ctx)
 {
-    const std::size_t pixelCount{static_cast<std::size_t>(ctx.width) * static_cast<std::size_t>(ctx.height)};
+    const std::size_t pixelCount{ctx.frame.PixelCount()};
     const auto outputs{Outputs()};
     const auto outputName{outputs.empty() ? std::string{kColorOutputName} : outputs.front()};
     if (!ctx.buffers.Has(outputName)) {

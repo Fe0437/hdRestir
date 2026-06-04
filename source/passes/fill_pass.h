@@ -35,8 +35,9 @@ public:
     [[nodiscard]] std::vector<std::string> Inputs() const override { return {}; }
     [[nodiscard]] std::vector<std::string> Outputs() const override { return {std::string{kColorOutputName}}; }
 
-    void Execute(RenderContext& ctx) override;
 
+protected:
+    void _execute(RenderContext& ctx) override;
 private:
     GfVec4f _color;
 };
@@ -46,7 +47,7 @@ inline std::unique_ptr<RenderPipeline> makeFillPipeline(
     GfVec4f color = GfVec4f(0.5f, 0.0f, 0.5f, 1.0f))
 {
     auto pipeline{std::make_unique<RenderPipeline>(std::move(name))};
-    pipeline->add(std::make_unique<FillPass>(color));
+    pipeline->Add(std::make_unique<FillPass>(color));
     return pipeline;
 }
 

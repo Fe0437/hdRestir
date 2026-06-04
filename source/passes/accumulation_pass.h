@@ -3,10 +3,8 @@
 #include "render_pass.h"
 #include "output_names.h"
 
-#include "pxr/base/gf/matrix4d.h"
-#include "pxr/base/gf/vec4f.h"
-
 #include <vector>
+#include <string>
 
 namespace Restir {
 
@@ -24,30 +22,30 @@ public:
 
     [[nodiscard]] static std::vector<std::string> StaticOutputs()
     {
-        return {std::string{kColorOutputName}};
+        return {
+            std::string{kColorOutputName},
+#if DEBUG_ENABLED
+            std::string{kVarianceOutputName},
+#endif
+        };
     }
 
     [[nodiscard]] std::vector<std::string> Inputs() const override { return {std::string{kColorOutputName}}; }
-    [[nodiscard]] std::vector<std::string> Outputs() const override { return {std::string{kColorOutputName}}; }
+    [[nodiscard]] std::vector<std::string> Outputs() const override
+    {
+        return {
+            std::string{kColorOutputName},
+#if DEBUG_ENABLED
+            std::string{kVarianceOutputName},
+#endif
+        };
+    }
 
-    void Execute(RenderContext& ctx) override;
-    void Reset() noexcept;
-
-    [[nodiscard]] int SampleCount() const noexcept { return _sampleCount; }
+protected:
+    void _execute(RenderContext& ctx) override;
 
 private:
-    bool                 _enableFireflyFilter{true};
-    std::vector<GfVec4f> _accumulator;
-    int                  _sampleCount{0};
-    GfMatrix4d           _lastViewMatrix{1.0};
-    GfMatrix4d           _lastProjMatrix{1.0};
-    int                  _lastWidth{0};
-    int                  _lastHeight{0};
-#if METRICS_ENABLED
-    std::vector<double>  _luminanceSum;
-    std::vector<double>  _luminanceSumSquares;
-#endif
-
+    bool _enableFireflyFilter{true};
 };
 
 }  // namespace Restir
