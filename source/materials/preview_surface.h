@@ -7,28 +7,34 @@
 
 #include <gsl/gsl>
 
-namespace Restir {
+namespace Restir
+{
 
-class PreviewSurfaceMaterial final : public IMaterial {
-public:
-    explicit PreviewSurfaceMaterial(
-        const PreviewSurfaceParams&                   params,
-        gsl::not_null<const ImageTextureSamplerFactory*> texFact) noexcept
-        : _params{params}, _texFact{texFact}
-    {}
+    class PreviewSurfaceMaterial final : public IMaterial
+    {
+      public:
+        explicit PreviewSurfaceMaterial(const PreviewSurfaceParams                       &params,
+                                        gsl::not_null<const ImageTextureSamplerFactory *> texFact) noexcept
+            : _params{params}, _texFact{texFact}
+        {
+        }
 
-    void SetParams(const PreviewSurfaceParams& params) {
-        _params = params;
-    }
+        void SetParams(const PreviewSurfaceParams &params)
+        {
+            _params = params;
+        }
 
-    [[nodiscard]] BSDFClosure GetClosure(const HitRecord& hit) const override;
-    [[nodiscard]] std::unique_ptr<IBSDF> CreateBSDF(BSDFClosure&& c) const override { return std::make_unique<GGXBsdf>(std::move(c)); }
-    [[nodiscard]] BounceSampleResult SampleBounce(
-        const ShadingPoint& surface, const BounceConfig& config, BounceState& state, Rng& rng) const override;
+        [[nodiscard]] BSDFClosure            GetClosure(const HitRecord &hit) const override;
+        [[nodiscard]] std::unique_ptr<IBSDF> CreateBSDF(BSDFClosure &&c) const override
+        {
+            return std::make_unique<GGXBsdf>(std::move(c));
+        }
+        [[nodiscard]] BounceSampleResult SampleBounce(const ShadingPoint &surface, const BounceConfig &config,
+                                                      BounceState &state, Rng &rng) const override;
 
-private:
-    PreviewSurfaceParams                          _params;
-    gsl::not_null<const ImageTextureSamplerFactory*> _texFact;
-};
+      private:
+        PreviewSurfaceParams                              _params;
+        gsl::not_null<const ImageTextureSamplerFactory *> _texFact;
+    };
 
-}  // namespace Restir
+} // namespace Restir

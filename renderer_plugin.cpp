@@ -1,6 +1,7 @@
+#include "renderer_plugin.h"
+
 #include "hydra/hd_restir_render_delegate.h"
 #include "pxr/imaging/hd/rendererPluginRegistry.h"
-#include "renderer_plugin.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
@@ -16,35 +17,29 @@ TF_REGISTRY_FUNCTION(TfType)
 #pragma clang diagnostic pop
 #endif
 
-HdRenderDelegate*
-HdRestirRendererPlugin::CreateRenderDelegate()
+HdRenderDelegate *HdRestirRendererPlugin::CreateRenderDelegate()
 {
     return new HdRestirRenderDelegate();
 }
 
-HdRenderDelegate*
-HdRestirRendererPlugin::CreateRenderDelegate(
-    HdRenderSettingsMap const& settingsMap)
+HdRenderDelegate *HdRestirRendererPlugin::CreateRenderDelegate(HdRenderSettingsMap const &settingsMap)
 {
     return new HdRestirRenderDelegate(settingsMap);
 }
 
-void
-HdRestirRendererPlugin::DeleteRenderDelegate(HdRenderDelegate *renderDelegate)
+void HdRestirRendererPlugin::DeleteRenderDelegate(HdRenderDelegate *renderDelegate)
 {
     delete renderDelegate;
 }
 
 #if PXR_VERSION >= 2600
-bool
-HdRestirRendererPlugin::IsSupported(HdRendererCreateArgs const& /* createArgs */,
-                                    std::string* /* reasonWhyNot */) const
+bool HdRestirRendererPlugin::IsSupported(HdRendererCreateArgs const & /* createArgs */,
+                                         std::string * /* reasonWhyNot */) const
 {
     return true;
 }
 #else
-bool
-HdRestirRendererPlugin::IsSupported(bool /* gpuEnabled */) const
+bool HdRestirRendererPlugin::IsSupported(bool /* gpuEnabled */) const
 {
     return true;
 }

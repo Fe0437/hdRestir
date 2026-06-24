@@ -6,14 +6,15 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-namespace Restir {
+namespace Restir
+{
 
-class IInstancer {
-public:
-    virtual ~IInstancer() = default;
+    class IInstancer
+    {
+      public:
+        virtual ~IInstancer() = default;
 
-    [[nodiscard]] virtual VtMatrix4dArray ComputeInstanceTransforms(
-        SdfPath const& prototypeId) = 0;
-};
+        [[nodiscard]] virtual VtMatrix4dArray ComputeInstanceTransforms(SdfPath const &prototypeId) = 0;
+    };
 
-}  // namespace Restir
+} // namespace Restir

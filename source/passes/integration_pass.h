@@ -8,40 +8,42 @@
 #include <string>
 #include <vector>
 
-namespace Restir {
+namespace Restir
+{
 
-// Manages the tiled pixel iteration loop — analogous to PBRT's ImageTileIntegrator.
-// that computes the per-sample radiance. Both share this loop without duplication.
-class IntegrationPass : public RenderPass {
-public:
-    IntegrationPass(std::string name, NotNullUniquePtr<IIntegrator>&& integrator)
-        : RenderPass{std::move(name)}
-        , _integrator{std::move(integrator)}
-    {}
-
-    [[nodiscard]] static std::vector<std::string> StaticInputs()
+    // Manages the tiled pixel iteration loop — analogous to PBRT's ImageTileIntegrator.
+    // that computes the per-sample radiance. Both share this loop without duplication.
+    class IntegrationPass : public RenderPass
     {
-        return {std::string{kGBufferOutputName}};
-    }
+      public:
+        IntegrationPass(std::string name, NotNullUniquePtr<IIntegrator> &&integrator)
+            : RenderPass{std::move(name)}, _integrator{std::move(integrator)}
+        {
+        }
 
-    [[nodiscard]] static std::vector<std::string> StaticOutputs()
-    {
-        return {std::string{kColorOutputName}};
-    }
+        [[nodiscard]] static std::vector<std::string> StaticInputs()
+        {
+            return {std::string{kGBufferOutputName}};
+        }
 
-    [[nodiscard]] std::vector<std::string> Inputs() const override
-    {
-        return {std::string{kGBufferOutputName}};
-    }
+        [[nodiscard]] static std::vector<std::string> StaticOutputs()
+        {
+            return {std::string{kColorOutputName}};
+        }
 
-    [[nodiscard]] std::vector<std::string> Outputs() const override
-    {
-        return {std::string{kColorOutputName}};
-    }
+        [[nodiscard]] std::vector<std::string> Inputs() const override
+        {
+            return {std::string{kGBufferOutputName}};
+        }
 
-protected:
-    void _execute(RenderContext& ctx) override;
-    NotNullUniquePtr<IIntegrator> _integrator;
-};
+        [[nodiscard]] std::vector<std::string> Outputs() const override
+        {
+            return {std::string{kColorOutputName}};
+        }
 
-}  // namespace Restir
+      protected:
+        void                          _execute(RenderContext &ctx) override;
+        NotNullUniquePtr<IIntegrator> _integrator;
+    };
+
+} // namespace Restir

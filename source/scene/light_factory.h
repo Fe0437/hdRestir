@@ -5,10 +5,17 @@
 
 #include <memory>
 
-namespace Restir {
+namespace Restir
+{
 
-enum class LightType { Distant, Dome, Rect, Point };
+    enum class LightType
+    {
+        Distant,
+        Dome,
+        Rect,
+        Point
+    };
 
-[[nodiscard]] std::unique_ptr<ILight> MakeLight(LightType type, const LightParams& params);
+    [[nodiscard]] std::unique_ptr<ILight> MakeLight(LightType type, const LightParams &params);
 
-}  // namespace Restir
+} // namespace Restir

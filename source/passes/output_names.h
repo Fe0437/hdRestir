@@ -2,55 +2,61 @@
 
 #include <string_view>
 
-namespace Restir {
+namespace Restir
+{
 
-inline constexpr std::string_view kGBufferOutputName{"GBuffer"};
+    inline constexpr std::string_view kGBufferOutputName{"GBuffer"};
 #if DEBUG_ENABLED
-inline constexpr std::string_view kPassTimingOutputName{"PassTiming"};
-inline constexpr std::string_view kPassSumTimingOutputName{"PassSumTiming"};
-inline constexpr std::string_view kVarianceOutputName{"Variance"};
+    inline constexpr std::string_view kPassTimingOutputName{"PassTiming"};
+    inline constexpr std::string_view kPassSumTimingOutputName{"PassSumTiming"};
+    inline constexpr std::string_view kVarianceOutputName{"Variance"};
 
-struct VarianceStats {
-    float mean{0.0f};
-    float max{0.0f};
-};
+    struct VarianceStats
+    {
+        float mean{0.0f};
+        float max{0.0f};
+    };
 #endif
-inline constexpr std::string_view kColorOutputName{"Color"};
+    inline constexpr std::string_view kColorOutputName{"Color"};
 
-// Persistent accumulation buffers (internal to AccumulationPass, not pipeline AOV outputs).
-inline constexpr std::string_view kAccumColorBuf{"__accum_color"};
+    // Persistent accumulation buffers (internal to AccumulationPass, not pipeline AOV outputs).
+    inline constexpr std::string_view kAccumColorBuf{"__accum_color"};
 #if METRICS_ENABLED
-inline constexpr std::string_view kAccumLumSumBuf  {"__accum_lum_sum"};
-inline constexpr std::string_view kAccumLumSumSqBuf{"__accum_lum_sum_sq"};
+    inline constexpr std::string_view kAccumLumSumBuf{"__accum_lum_sum"};
+    inline constexpr std::string_view kAccumLumSumSqBuf{"__accum_lum_sum_sq"};
 #endif
-inline constexpr std::string_view kDepthOutputName{"Depth"};
-inline constexpr std::string_view kAlbedoOutputName{"Albedo"};
-inline constexpr std::string_view kNormalOutputName{"Normal"};
+    inline constexpr std::string_view kDepthOutputName{"Depth"};
+    inline constexpr std::string_view kAlbedoOutputName{"Albedo"};
+    inline constexpr std::string_view kNormalOutputName{"Normal"};
 
-enum class OutputDataType {
-    Color4,
-    Vec3,
-    Float1,
-    Unknown,
-};
+    enum class OutputDataType
+    {
+        Color4,
+        Vec3,
+        Float1,
+        Unknown,
+    };
 
-[[nodiscard]] inline bool IsColorOutputName(std::string_view name) noexcept
-{
-    return name == kColorOutputName;
-}
-
-[[nodiscard]] inline OutputDataType GetOutputDataType(std::string_view name) noexcept
-{
-    if (name == kColorOutputName) {
-        return OutputDataType::Color4;
+    [[nodiscard]] inline bool IsColorOutputName(std::string_view name) noexcept
+    {
+        return name == kColorOutputName;
     }
-    if (name == kAlbedoOutputName || name == kNormalOutputName) {
-        return OutputDataType::Vec3;
-    }
-    if (name == kDepthOutputName) {
-        return OutputDataType::Float1;
-    }
-    return OutputDataType::Unknown;
-}
 
-}  // namespace Restir
+    [[nodiscard]] inline OutputDataType GetOutputDataType(std::string_view name) noexcept
+    {
+        if (name == kColorOutputName)
+        {
+            return OutputDataType::Color4;
+        }
+        if (name == kAlbedoOutputName || name == kNormalOutputName)
+        {
+            return OutputDataType::Vec3;
+        }
+        if (name == kDepthOutputName)
+        {
+            return OutputDataType::Float1;
+        }
+        return OutputDataType::Unknown;
+    }
+
+} // namespace Restir

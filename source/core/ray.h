@@ -4,11 +4,13 @@
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
-namespace Restir {
+namespace Restir
+{
 
-struct Ray {
-    GfVec3f Origin{};
-    GfVec3f Dir{};
-};
+    struct Ray
+    {
+        GfVec3f Origin{};
+        GfVec3f Dir{};
+    };
 
-}  // namespace Restir
+} // namespace Restir
