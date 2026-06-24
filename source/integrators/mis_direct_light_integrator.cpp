@@ -1,9 +1,11 @@
 #include "mis_direct_light_integrator.h"
 
+#include "lighting_core/uniform_light_sampler.h"
 #include "shading_helpers.h"
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <utility>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -11,8 +13,30 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace Restir
 {
 
+    namespace
+    {
+
+        class MisDirectLightIntegratorFactory final : public IDirectLightIntegratorFactory
+        {
+          public:
+            [[nodiscard]] NotNullUniquePtr<IDirectLightIntegrator> Create(const IScene &scene,
+                                                                          IBufferProvider & /*provider*/) const override
+            {
+                return NotNullUniquePtr<IDirectLightIntegrator>{std::make_unique<MisDirectLightIntegrator>(
+                    NotNullUniquePtr<ILightSampler>{std::make_unique<UniformLightSampler>(scene.GetLights())})};
+            }
+        };
+
+    } // namespace
+
+    NotNullUniquePtr<IDirectLightIntegratorFactory> MisDirectLightIntegrator::MakeFactory()
+    {
+        return NotNullUniquePtr<IDirectLightIntegratorFactory>{std::make_unique<MisDirectLightIntegratorFactory>()};
+    }
+
     SampledSpectrum MisDirectLightIntegrator::Li(const RayIntersection &isect, const IScene &scene, Rng &rng,
-                                                 const SampledWavelengths &lambda) const
+                                                 const SampledWavelengths &lambda, IBufferProvider &provider,
+                                                 CallIndex callId) const
     {
         if (!isect.hit.has_value())
         {
@@ -36,18 +60,21 @@ namespace Restir
         }
 
         const std::unique_ptr<IBSDF> bsdfOwner{material.CreateBSDF(BSDFClosure{closure})};
-        const ShadingPoint           surface{hit, *bsdfOwner, closure, shadingNormal, isect.ray.Dir, lambda, isInside};
+        const ShadingPoint           sp{*bsdfOwner, closure, shadingNormal, lambda, isInside};
+        const RayIntersection        shadedIsect{isect.ray, isect.hit, sp};
 
-        return throughput * (RGBToSpectrum(closure.Emission, lambda) + Li(surface, scene, rng));
+        return throughput * (RGBToSpectrum(closure.Emission, lambda) +
+                             Li(shadedIsect, scene, rng, lambda, provider, std::nullopt, callId));
     }
 
-    MisDirectLightIntegrator::MISContrib MisDirectLightIntegrator::_evaluateNEE(const ShadingPoint &surface,
-                                                                                const ILight       &light,
-                                                                                const LightSample  &lightSample,
-                                                                                const IScene       &scene) const
+    MisDirectLightIntegrator::MISContrib MisDirectLightIntegrator::_evaluateNEE(const RayIntersection &isect,
+                                                                                const ILight          &light,
+                                                                                const LightSample     &lightSample,
+                                                                                const IScene          &scene) const
     {
-        const GfVec3f &shadingNormal{surface.shadingNormal};
-        const GfVec3f &hitPos{surface.hit.Position};
+        const ShadingPoint &surface{*isect.shadingPoint};
+        const GfVec3f      &shadingNormal{surface.shadingNormal};
+        const GfVec3f      &hitPos{isect.hit->Position};
 
         const float nDotL{GfDot(shadingNormal, lightSample.Dir)};
         if (nDotL <= 0.0f)
@@ -62,6 +89,8 @@ namespace Restir
             return {};
         }
 
+        // The light-selection probability is already baked into lightSample.Pdf by the light sampler
+        // (and is 1 for the directly-sampled sky technique), so no extra lightSelectPdf factor is applied.
         const float pNee{lightSample.Pdf.ConvertTo(PdfSpace::SolidAngle, dist2, std::max(cosY, 1e-6f)).value};
         if (pNee <= 0.0f)
         {
@@ -75,12 +104,10 @@ namespace Restir
             return {};
         }
 
-        const GfVec3f wo{-surface.rayDir};
+        const GfVec3f wo{-isect.ray.Dir};
         const GfVec3f bsdfValue{surface.bsdf.Eval(shadingNormal, wo, lightSample.Dir)};
         const float   bsdfPdf{surface.bsdf.Pdf(shadingNormal, wo, lightSample.Dir)};
 
-        // NEE estimator for one sampled light direction:
-        // f(x, wo, wi) * Le(y -> x) * cos(theta_x) / p_nee(wi).
         const SampledSpectrum radiance{RGBToSpectrum(bsdfValue, surface.lambda) *
                                        RGBToSpectrum(lightSample.Color, surface.lambda) * (nDotL / pNee)};
 
@@ -92,38 +119,58 @@ namespace Restir
         };
     }
 
-    SampledSpectrum MisDirectLightIntegrator::_integrateNEE(const ShadingPoint &surface, const IScene &scene, Rng &rng,
+    SampledSpectrum MisDirectLightIntegrator::_integrateNEE(const RayIntersection &isect, const IScene &scene, Rng &rng,
                                                             bool useBsdfTechnique) const
     {
         SampledSpectrum      totalRadiance{0.0f};
         const ILightSampler &activeSampler{*_sampler};
+        const GfVec3f       &hitPos{isect.hit->Position};
 
-        const auto candidate{activeSampler.ProposeCandidate(surface.hit.Position, rng)};
+        const IEnvironment *envLight{scene.GetEnvironment()};
+        const float         envSelectPdf{envLight != nullptr ? activeSampler.EvalPdf(*envLight) : 0.0f};
+        const bool          hasSeparateEnvTechnique{envLight != nullptr && envSelectPdf <= 0.0f};
+
+        const auto candidate{activeSampler.ProposeCandidate(hitPos, rng)};
         if (candidate.has_value())
         {
-            const MISContrib nee{_evaluateNEE(surface, *candidate->Light, candidate->Ls, scene)};
+            const MISContrib nee{_evaluateNEE(isect, *candidate->Light, candidate->Ls, scene)};
             if (nee.PNee > 0.0f)
             {
-                const float misWeight{(nee.IsDelta || !useBsdfTechnique) ? 1.0f : PowerHeuristic(nee.PNee, nee.PBsdf)};
+                float misWeight;
+                if (nee.IsDelta || !useBsdfTechnique)
+                {
+                    misWeight = 1.0f;
+                }
+                else if (hasSeparateEnvTechnique)
+                {
+                    misWeight = PowerHeuristic(nee.PNee, 1, 0.0f, 1, nee.PBsdf, 1);
+                }
+                else
+                {
+                    misWeight = PowerHeuristic(nee.PNee, nee.PBsdf);
+                }
                 totalRadiance += nee.Radiance * misWeight;
             }
         }
 
-        if (!activeSampler.IsConsideringSkyLight())
+        if (hasSeparateEnvTechnique)
         {
-            const ILight *skyLight{scene.GetSkyLight()};
-            if (skyLight != nullptr)
+            const auto lightSample{envLight->SampleLight(hitPos, rng)};
+            if (lightSample.has_value())
             {
-                const auto lightSample{skyLight->SampleLight(surface.hit.Position, rng)};
-                if (lightSample.has_value())
+                const MISContrib nee{_evaluateNEE(isect, *envLight, *lightSample, scene)};
+                if (nee.PNee > 0.0f)
                 {
-                    const MISContrib nee{_evaluateNEE(surface, *skyLight, *lightSample, scene)};
-                    if (nee.PNee > 0.0f)
+                    float misWeight;
+                    if (nee.IsDelta || !useBsdfTechnique)
                     {
-                        const float misWeight{(nee.IsDelta || !useBsdfTechnique) ? 1.0f
-                                                                                 : PowerHeuristic(nee.PNee, nee.PBsdf)};
-                        totalRadiance += nee.Radiance * misWeight;
+                        misWeight = 1.0f;
                     }
+                    else
+                    {
+                        misWeight = PowerHeuristic(nee.PNee, 1, 0.0f, 1, nee.PBsdf, 1);
+                    }
+                    totalRadiance += nee.Radiance * misWeight;
                 }
             }
         }
@@ -131,27 +178,30 @@ namespace Restir
         return totalRadiance;
     }
 
-    SampledSpectrum MisDirectLightIntegrator::_integrateBSDFConnection(const ShadingPoint         &surface,
+    SampledSpectrum MisDirectLightIntegrator::_integrateBSDFConnection(const RayIntersection      &isect,
                                                                        const BsdfBounceConnection &connection,
                                                                        const IScene               &scene) const
     {
+        const SampledWavelengths &lambda{isect.shadingPoint->lambda};
+
         if (connection.Bounce.ImpossibleNEEConnection || connection.Bounce.BsdfPdf.value <= 0.0f)
         {
             if (!connection.Hit.has_value())
             {
                 const IEnvironment *environment{scene.GetEnvironment()};
                 return (environment != nullptr
-                            ? RGBToSpectrum(environment->Sample(connection.Bounce.NextRay.Dir), surface.lambda)
+                            ? RGBToSpectrum(environment->Sample(connection.Bounce.NextRay.Dir), lambda)
                             : SampledSpectrum{0.0f}) *
                        connection.Bounce.ThroughputMul;
             }
 
             const IMaterial  &material{scene.GetMaterial(connection.Hit->MatId)};
             const BSDFClosure closure{material.GetClosure(*connection.Hit)};
-            return RGBToSpectrum(closure.Emission, surface.lambda) * connection.Bounce.ThroughputMul;
+            return RGBToSpectrum(closure.Emission, lambda) * connection.Bounce.ThroughputMul;
         }
 
-        float           pNee{0.0f};
+        float           pNeeSampler{0.0f};
+        float           pNeeEnv{0.0f};
         SampledSpectrum radiance{0.0f};
 
         if (!connection.Hit.has_value())
@@ -162,55 +212,59 @@ namespace Restir
                 return SampledSpectrum{0.0f};
             }
 
-            radiance = RGBToSpectrum(environment->Sample(connection.Bounce.NextRay.Dir), surface.lambda);
-            pNee     = environment->EvalPdf(connection.Bounce.NextRay.Dir);
+            radiance = RGBToSpectrum(environment->Sample(connection.Bounce.NextRay.Dir), lambda);
+
+            const float envSelectPdf{_sampler->EvalPdf(*environment)};
+            const float envPdf{environment->EvalPdf(connection.Bounce.NextRay.Dir)};
+            pNeeSampler = envSelectPdf * envPdf;
+            pNeeEnv     = envSelectPdf <= 0.0f ? envPdf : 0.0f;
         }
         else
         {
             const IMaterial  &material{scene.GetMaterial(connection.Hit->MatId)};
             const BSDFClosure closure{material.GetClosure(*connection.Hit)};
-            radiance = RGBToSpectrum(closure.Emission, surface.lambda);
+            radiance = RGBToSpectrum(closure.Emission, lambda);
 
             const ILight *hitLight{scene.GetLightAtHit(*connection.Hit)};
             if (hitLight != nullptr)
             {
-                const GfVec3f hitOffset{connection.Hit->Position - connection.Bounce.NextRay.Origin};
-                const float   dist2{GfDot(hitOffset, hitOffset)};
-                const float   cosY{std::max(0.0f, GfDot(-connection.Bounce.NextRay.Dir, connection.Hit->Normal))};
-                if (cosY > 0.0f)
+                const float lightSelectPdf{_sampler->EvalPdf(*hitLight)};
+                if (lightSelectPdf > 0.0f)
                 {
-                    const Pdf areaPdf{hitLight->EvalPdf(surface.hit.Position, connection.Bounce.NextRay.Dir,
-                                                        std::sqrt(dist2), connection.Hit->Normal)};
-                    pNee = areaPdf.ConvertTo(PdfSpace::SolidAngle, dist2, cosY).value;
+                    const GfVec3f hitOffset{connection.Hit->Position - connection.Bounce.NextRay.Origin};
+                    const float   dist2{GfDot(hitOffset, hitOffset)};
+                    const float   cosY{std::max(0.0f, GfDot(-connection.Bounce.NextRay.Dir, connection.Hit->Normal))};
+                    if (cosY > 0.0f)
+                    {
+                        const Pdf areaPdf{hitLight->EvalPdf(isect.hit->Position, connection.Bounce.NextRay.Dir,
+                                                            std::sqrt(dist2), connection.Hit->Normal)};
+                        pNeeSampler = lightSelectPdf * areaPdf.ConvertTo(PdfSpace::SolidAngle, dist2, cosY).value;
+                    }
                 }
             }
         }
 
-        if (pNee <= 0.0f)
+        if (pNeeSampler + pNeeEnv <= 0.0f)
         {
             return radiance * connection.Bounce.ThroughputMul;
         }
 
         // BSDF-sampled light-hit estimator with MIS against NEE:
-        // (f * cos / p_bsdf) * Le * w_bsdf, where ThroughputMul already stores f * cos / p_bsdf.
-        const float misWeight{PowerHeuristic(connection.Bounce.BsdfPdf.value, pNee)};
+        const float misWeight{PowerHeuristic(connection.Bounce.BsdfPdf.value, 1, pNeeSampler, 1, pNeeEnv, 1)};
         return radiance * misWeight * connection.Bounce.ThroughputMul;
     }
 
-    SampledSpectrum MisDirectLightIntegrator::Li(const ShadingPoint &surface, const IScene &scene, Rng &rng) const
-    {
-        return Li(surface, scene, rng, std::nullopt);
-    }
-
-    SampledSpectrum MisDirectLightIntegrator::Li(const ShadingPoint &surface, const IScene &scene, Rng &rng,
-                                                 const std::optional<BsdfBounceConnection> &bsdfConnection) const
+    SampledSpectrum MisDirectLightIntegrator::Li(const RayIntersection &isect, const IScene &scene, Rng &rng,
+                                                 const SampledWavelengths & /*lambda*/, IBufferProvider & /*provider*/,
+                                                 const std::optional<BsdfBounceConnection> &bsdfConnection,
+                                                 CallIndex /*callId*/) const
     {
         const bool      useBsdfTechnique{bsdfConnection.has_value()};
-        SampledSpectrum totalRadiance{_integrateNEE(surface, scene, rng, useBsdfTechnique)};
+        SampledSpectrum totalRadiance{_integrateNEE(isect, scene, rng, useBsdfTechnique)};
 
         if (bsdfConnection.has_value())
         {
-            totalRadiance += _integrateBSDFConnection(surface, *bsdfConnection, scene);
+            totalRadiance += _integrateBSDFConnection(isect, *bsdfConnection, scene);
         }
 
         return totalRadiance;

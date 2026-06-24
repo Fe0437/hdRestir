@@ -51,9 +51,6 @@ namespace Restir
 
         [[nodiscard]] virtual gsl::span<ILight *const> GetLights() const = 0;
 
-        // Returns the sky-light (PhysicalSky sun) as an ILight, or nullptr if none.
-        [[nodiscard]] virtual const ILight *GetSkyLight() const noexcept = 0;
-
         // Returns the ILight* if the hit surface is the geometry of a registered light, nullptr otherwise.
         [[nodiscard]] virtual const ILight *GetLightAtHit(const HitRecord &hit) const = 0;
 

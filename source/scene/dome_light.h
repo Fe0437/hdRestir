@@ -14,7 +14,7 @@ namespace Restir
 
     // Handles both NEE importance sampling (ILight) and miss-colour lookup (IEnvironment).
     // Owns the texture pixels and CDF tables; Prepare() is idempotent.
-    class DomeLight final : public ILight, public IEnvironment
+    class DomeLight final : public IEnvironment
     {
       public:
         explicit DomeLight(const LightParams &params) noexcept;

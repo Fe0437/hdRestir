@@ -126,16 +126,36 @@ namespace
 
     [[nodiscard]] std::string MakeRenderSettingEnvironmentName(const TfToken &token)
     {
-        std::string            envName{"HDRESTIR_"};
-        const std::string_view tokenText{token.GetString()};
+        std::string      envName{"HDRESTIR_"};
+        std::string_view tokenText{token.GetString()};
+
+        // Token strings follow a "namespace:camelCaseName" convention.  The root namespace
+        // component (everything before the first ':') is dropped — it duplicates the
+        // "HDRESTIR_" prefix and obscures the semantic name.  Any remaining ':' characters
+        // from deeper nesting are converted to '_', and camelCase boundaries get their
+        // own '_' separator, so the env var name matches the Python-side naming that works
+        // directly from the camelCase C++ identifier.
+        const auto firstColon{tokenText.find(':')};
+        if (firstColon != std::string_view::npos)
+        {
+            tokenText = tokenText.substr(firstColon + 1);
+        }
+
         for (std::size_t i{0}; i < tokenText.size(); ++i)
         {
             const unsigned char ch{static_cast<unsigned char>(tokenText[i])};
-            if (std::isupper(ch) != 0 && i > 0)
+            if (ch == ':')
             {
                 envName.push_back('_');
             }
-            envName.push_back(static_cast<char>(std::toupper(ch)));
+            else
+            {
+                if (std::isupper(ch) != 0 && i > 0 && tokenText[i - 1] != ':')
+                {
+                    envName.push_back('_');
+                }
+                envName.push_back(static_cast<char>(std::toupper(ch)));
+            }
         }
         return envName;
     }
@@ -318,8 +338,6 @@ bool Restir::Renderer::SetRenderSetting(const TfToken &key, const VtValue &value
     auto indexToToken = [](int idx) -> TfToken
     {
         if (idx == 1)
-            return GetPathTracerPostProcessPipelineToken();
-        if (idx == 2)
             return GetRISPipelineToken();
         return GetPathTracerPipelineToken();
     };

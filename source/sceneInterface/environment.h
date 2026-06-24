@@ -1,5 +1,6 @@
 #pragma once
 
+#include "light_interface.h"
 #include "pxr/base/gf/vec3f.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -7,7 +8,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace Restir
 {
 
-    class IEnvironment
+    class IEnvironment : public ILight
     {
       public:
         virtual ~IEnvironment() = default;

@@ -11,8 +11,9 @@
 namespace Restir
 {
 
-    // Manages the tiled pixel iteration loop — analogous to PBRT's ImageTileIntegrator.
-    // that computes the per-sample radiance. Both share this loop without duplication.
+    // Manages the tiled pixel iteration loop.
+    // Calls _integrator->GetBufferStager() once before the parallel pixel loop
+    // to declare persistent per-pixel buffers, if a stager is present.
     class IntegrationPass : public RenderPass
     {
       public:

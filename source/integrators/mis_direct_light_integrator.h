@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clonable.h"
+#include "direct_light_integrator_factory.h"
 #include "direct_light_integrator_interface.h"
 #include "lighting_core/light_sampler.h"
 #include "materials/material.h"
@@ -18,18 +19,23 @@ namespace Restir
       public:
         explicit MisDirectLightIntegrator(NotNullUniquePtr<ILightSampler> &&sampler) : _sampler{std::move(sampler)} {}
 
+        [[nodiscard]] static NotNullUniquePtr<IDirectLightIntegratorFactory> MakeFactory();
+
         [[nodiscard]] std::unique_ptr<IDirectLightIntegrator> CloneAs() const override
         {
             return std::make_unique<MisDirectLightIntegrator>(NotNullUniquePtr<ILightSampler>{_sampler->CloneAs()});
         }
 
+        // Top-level call: computes shading from hit when shadingPoint is absent.
         [[nodiscard]] SampledSpectrum Li(const RayIntersection &isect, const IScene &scene, Rng &rng,
-                                         const SampledWavelengths &lambda) const override;
+                                         const SampledWavelengths &lambda, IBufferProvider &provider,
+                                         CallIndex callId) const override;
 
-        [[nodiscard]] SampledSpectrum Li(const ShadingPoint &surface, const IScene &scene, Rng &rng) const override;
-
-        [[nodiscard]] SampledSpectrum Li(const ShadingPoint &surface, const IScene &scene, Rng &rng,
-                                         const std::optional<BsdfBounceConnection> &bsdfConnection) const override;
+        // Per-bounce call: isect.shadingPoint must be populated.
+        [[nodiscard]] SampledSpectrum Li(const RayIntersection &isect, const IScene &scene, Rng &rng,
+                                         const SampledWavelengths &lambda, IBufferProvider &provider,
+                                         const std::optional<BsdfBounceConnection> &bsdfConnection,
+                                         CallIndex                                  callId) const override;
 
       private:
         struct MISContrib
@@ -40,13 +46,13 @@ namespace Restir
             bool            IsDelta{false};
         };
 
-        [[nodiscard]] MISContrib _evaluateNEE(const ShadingPoint &surface, const ILight &light,
+        [[nodiscard]] MISContrib _evaluateNEE(const RayIntersection &isect, const ILight &light,
                                               const LightSample &lightSample, const IScene &scene) const;
 
-        [[nodiscard]] SampledSpectrum _integrateNEE(const ShadingPoint &surface, const IScene &scene, Rng &rng,
+        [[nodiscard]] SampledSpectrum _integrateNEE(const RayIntersection &isect, const IScene &scene, Rng &rng,
                                                     bool useBsdfTechnique) const;
 
-        [[nodiscard]] SampledSpectrum _integrateBSDFConnection(const ShadingPoint         &surface,
+        [[nodiscard]] SampledSpectrum _integrateBSDFConnection(const RayIntersection      &isect,
                                                                const BsdfBounceConnection &connection,
                                                                const IScene               &scene) const;
 

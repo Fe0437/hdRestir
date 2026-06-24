@@ -12,16 +12,13 @@ namespace Restir
         enum class PipelineKind
         {
             RIS,
-            PathTracer,
-            PathTracerPostProcess
+            PathTracer
         };
 
         [[nodiscard]] PipelineKind ParsePipelineKind(const TfToken &token)
         {
             if (token == GetRISPipelineToken())
                 return PipelineKind::RIS;
-            if (token == GetPathTracerPostProcessPipelineToken())
-                return PipelineKind::PathTracerPostProcess;
             return PipelineKind::PathTracer;
         }
 
@@ -77,8 +74,16 @@ namespace Restir
             return RISPipelineSettings{
                 .PathTracer     = MakePathTracerSettings(s),
                 .CandidateCount = Get<int>(s.Values, HdRestirRenderSettingsTokens->risCandidateCount, 16),
+                .UseReservoir   = Get<bool>(s.Values, HdRestirRenderSettingsTokens->risUseReservoir, true),
             };
         }
+
+        // Maps each split-screen right-side override token to the base setting it replaces.
+        // To make any setting independently configurable per side, add a row here and declare
+        // the matching splitScreen:* token in restir_render_settings.h. No other code changes needed.
+        static const std::pair<TfToken, TfToken> kRightPipelineOverrides[] = {
+            {HdRestirRenderSettingsTokens->splitScreenRisUseReservoir, HdRestirRenderSettingsTokens->risUseReservoir},
+        };
 
         [[nodiscard]] std::unique_ptr<RenderPipeline> MakeBuiltinPipeline(PipelineKind kind, std::string &&name,
                                                                           const RendererPipelineSettings &settings)
@@ -89,8 +94,9 @@ namespace Restir
                     return MakeRISPipeline(std::move(name), MakeRISSettings(settings));
                 case PipelineKind::PathTracer:
                     return makePathTracerPipeline(std::move(name), MakePathTracerSettings(settings));
-                case PipelineKind::PathTracerPostProcess:
-                    return makePathTracerPostProcessPipeline(std::move(name), MakePathTracerSettings(settings));
+                    // To re-add PathTracerPostProcess: add PipelineKind::PathTracerPostProcess, register
+                    // its token via GetPathTracerPostProcessPipelineToken(), and add a case here that calls
+                    // makePathTracerPostProcessPipeline() from path_tracer_pipeline.h.
             }
             return makePathTracerPipeline(std::move(name), MakePathTracerSettings(settings));
         }
@@ -108,9 +114,21 @@ namespace Restir
             const int leftTarget{Get<int>(settings.Values, HdRestirRenderSettingsTokens->targetSampleCount, 32)};
             const int rightTarget{
                 Get<int>(settings.Values, HdRestirRenderSettingsTokens->splitScreenTargetSampleCount, 32)};
-            _splitScreen = std::make_unique<SplitScreenCompositor>(
-                MakeBuiltinPipeline(primary, "LeftPipeline", settings),
-                MakeBuiltinPipeline(right, "RightPipeline", settings), resLevel, resLevel, leftTarget, rightTarget);
+
+            RendererPipelineSettings rightSettings{settings};
+            for (const auto &[splitToken, baseToken] : kRightPipelineOverrides)
+            {
+                const auto it{rightSettings.Values.find(splitToken)};
+                if (it != rightSettings.Values.end())
+                {
+                    rightSettings.Values[baseToken] = it->second;
+                }
+            }
+
+            _splitScreen =
+                std::make_unique<SplitScreenCompositor>(MakeBuiltinPipeline(primary, "LeftPipeline", settings),
+                                                        MakeBuiltinPipeline(right, "RightPipeline", rightSettings),
+                                                        resLevel, resLevel, leftTarget, rightTarget);
             return;
         }
 
@@ -146,12 +164,11 @@ namespace Restir
                                  gsl::span<const std::string>                                      requestedOutputNames)
     {
         return RendererPipelineSettings{
-            .Values          = renderSettings,
-            .PrimaryPipeline = Get<TfToken>(renderSettings, HdRestirRenderSettingsTokens->primaryPipeline,
-                                            GetPathTracerPipelineToken()),
-            .SplitScreenRightPipeline =
-                Get<TfToken>(renderSettings, HdRestirRenderSettingsTokens->splitScreenRightPipeline,
-                             GetPathTracerPostProcessPipelineToken()),
+            .Values                   = renderSettings,
+            .PrimaryPipeline          = Get<TfToken>(renderSettings, HdRestirRenderSettingsTokens->primaryPipeline,
+                                                     GetPathTracerPipelineToken()),
+            .SplitScreenRightPipeline = Get<TfToken>(
+                renderSettings, HdRestirRenderSettingsTokens->splitScreenRightPipeline, GetRISPipelineToken()),
             .EnableSplitScreen = Get<bool>(renderSettings, HdRestirRenderSettingsTokens->enableSplitScreen, false),
             .OutputNames       = {requestedOutputNames.begin(), requestedOutputNames.end()},
         };
@@ -169,10 +186,6 @@ namespace Restir
     TfToken GetPathTracerPipelineToken()
     {
         return TfToken{"PathTracer"};
-    }
-    TfToken GetPathTracerPostProcessPipelineToken()
-    {
-        return TfToken{"PathTracerPostProcess"};
     }
     TfToken GetRISPipelineToken()
     {

@@ -19,7 +19,6 @@ namespace Restir
     struct LightCandidate
     {
         gsl::not_null<const ILight *> Light;
-        int                           LightIndex;
         LightSample                   Ls;
         Pdf                           Pdf;
     };
@@ -31,12 +30,8 @@ namespace Restir
 
         [[nodiscard]] virtual std::optional<LightCandidate> ProposeCandidate(const GfVec3f &hitPos, Rng &rng) const = 0;
 
-        // Returns true if this sampler already includes the sky light in its proposals,
-        // so callers should NOT add a separate sky-light contribution.
-        [[nodiscard]] virtual bool IsConsideringSkyLight() const noexcept
-        {
-            return false;
-        }
+        // Probability of choosing this light before sampling a point/direction on it.
+        [[nodiscard]] virtual float EvalPdf(const ILight &light) const = 0;
     };
 
 } // namespace Restir

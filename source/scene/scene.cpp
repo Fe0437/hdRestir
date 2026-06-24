@@ -292,11 +292,6 @@ namespace Restir
         return gsl::span<ILight *const>{_renderState->ActiveLights};
     }
 
-    const ILight *Scene::GetSkyLight() const noexcept
-    {
-        return _renderState.has_value() ? _renderState->PhysicalSkyLight.get() : nullptr;
-    }
-
     const ImageTextureSamplerFactory *Scene::GetTextureSamplerFactory() const
     {
         return _renderState.has_value() ? _renderState->TextureSamplerFactory.get() : nullptr;

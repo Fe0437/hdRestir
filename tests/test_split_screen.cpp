@@ -103,10 +103,6 @@ namespace
         {
             return {};
         }
-        [[nodiscard]] const Restir::ILight *GetSkyLight() const noexcept override
-        {
-            return nullptr;
-        }
         [[nodiscard]] const Restir::ILight *GetLightAtHit(const Restir::HitRecord &) const override
         {
             return nullptr;

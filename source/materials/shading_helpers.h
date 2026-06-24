@@ -80,14 +80,34 @@ inline float PowerHeuristic(float f, float g)
     return f2 / (f2 + g2);
 }
 
-// Resampling MIS weight for RIS with nf samples from technique f and ng from g.
+namespace Detail
+{
+    inline float PowerHeuristicDenominator()
+    {
+        return 0.0f;
+    }
+
+    template <typename... Rest> inline float PowerHeuristicDenominator(float p, int n, Rest... rest)
+    {
+        static_assert(sizeof...(rest) % 2 == 0, "PowerHeuristic expects (pdf, sampleCount) pairs");
+
+        const float p2{p * p};
+        return static_cast<float>(n) * p2 + PowerHeuristicDenominator(rest...);
+    }
+} // namespace Detail
+
+// Resampling MIS weight for RIS with any number of techniques passed as (pdf, sampleCount) pairs.
 // Satisfies Σ M_k * m_k = 1, so W_X = (1/p̂) * Σ w_i is unbiased without an extra 1/M.
 // For equal nf=ng=N: equals PowerHeuristic(f,g)/N.
-inline float PowerHeuristic(float f, int nf, float g, int ng)
+template <typename... Rest> inline float PowerHeuristic(float f, int nf, float g, int ng, Rest... rest)
 {
-    float f2 = f * f;
-    float g2 = g * g;
-    return f2 / (static_cast<float>(nf) * f2 + static_cast<float>(ng) * g2);
+    static_assert(sizeof...(rest) % 2 == 0, "PowerHeuristic expects (pdf, sampleCount) pairs");
+
+    const float f2{f * f};
+    const float g2{g * g};
+    const float denom{static_cast<float>(nf) * f2 + static_cast<float>(ng) * g2 +
+                      Detail::PowerHeuristicDenominator(rest...)};
+    return denom > 0.0f ? f2 / denom : 0.0f;
 }
 
 // Beer–Lambert volumetric absorption for transmissive materials.

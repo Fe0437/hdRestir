@@ -1,37 +1,34 @@
 #include "path_integrator.h"
 
+#include "direct_light_integrator_interface.h"
+#include "material.h"
 #include "shading_helpers.h"
-
-#include <stdexcept>
 
 PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace Restir
 {
 
-    PathIntegrator::PathIntegrator(DirectLightIntegratorFactory directLightFactory, PathTracePassSettings settings,
-                                   int maxDepth)
-        : _settings{settings}, _maxDepth{maxDepth}, _directLightFactory{std::move(directLightFactory)}
+    PathIntegrator::PathIntegrator(NotNullUniquePtr<IDirectLightIntegratorFactory> &&factory,
+                                   PathTracePassSettings settings, int maxDepth)
+        : _settings{settings}, _maxDepth{maxDepth}, _factory{std::move(factory)}
     {
-        if (!_directLightFactory)
-        {
-            throw std::runtime_error{"PathIntegrator requires a direct light integrator factory"};
-        }
     }
 
     SampledSpectrum PathIntegrator::Li(const RayIntersection &isect, const IScene &scene, Rng &rng,
-                                       const SampledWavelengths &lambda) const
+                                       const SampledWavelengths &lambda, IBufferProvider &provider,
+                                       CallIndex callId) const
     {
         const IEnvironment *env{scene.GetEnvironment()};
         const GfVec3f       rayDir{isect.ray.Dir};
 
-        // Advance through transparent surfaces until we reach an opaque hit or miss everything.
         std::optional<HitRecord> hit{isect.hit};
+        SampledSpectrum          throughput{1.0f};
+
         while (hit)
         {
             const IMaterial &mat{scene.GetMaterial(hit->MatId)};
-
-            BSDFClosure c{mat.GetClosure(*hit)};
+            BSDFClosure      c{mat.GetClosure(*hit)};
             if (!_settings.EnableSubsurface)
             {
                 c.Subsurface = 0.0f;
@@ -39,25 +36,22 @@ namespace Restir
 
             if (c.Opacity >= 0.999f || rng.NextFloat() <= c.Opacity)
             {
-                const bool      isInside{GfDot(c.Normal, rayDir) > 0.0f};
-                SampledSpectrum throughput{1.0f};
+                const bool isInside{GfDot(c.Normal, rayDir) > 0.0f};
                 BeerAbsorption(throughput, c, hit->Depth, isInside, lambda);
-
                 GfVec3f shadingNormal{c.Normal};
                 if (isInside)
                 {
                     shadingNormal = -shadingNormal;
                 }
-
                 const std::unique_ptr<IBSDF> bsdfOwner{mat.CreateBSDF(BSDFClosure{c})};
-                const ShadingPoint           firstSurface{*hit, *bsdfOwner, c, shadingNormal, rayDir, lambda, isInside};
-                return throughput * Li(firstSurface, scene, rng);
+                const ShadingPoint           sp{*bsdfOwner, c, shadingNormal, lambda, isInside};
+                const RayIntersection        shadedIsect{isect.ray, hit, sp};
+                return throughput * _li(shadedIsect, scene, rng, lambda, provider, callId);
             }
 
             hit = scene.IntersectScene(hit->Position + rayDir * 1e-4f, rayDir);
         }
 
-        // Primary ray missed all geometry.
         if (env != nullptr && _settings.RenderIblBackground)
         {
             return RGBToSpectrum(env->Sample(rayDir), lambda);
@@ -65,29 +59,27 @@ namespace Restir
         return SampledSpectrum{0.0f};
     }
 
-    SampledSpectrum PathIntegrator::Li(const ShadingPoint &firstSurface, const IScene &scene, Rng &rng) const
+    SampledSpectrum PathIntegrator::_li(const RayIntersection &isect, const IScene &scene, Rng &rng,
+                                        const SampledWavelengths &lambda, IBufferProvider &provider,
+                                        CallIndex callId) const
     {
-        const SampledWavelengths &lambda{firstSurface.lambda};
-        const BounceConfig        config{_settings.MaxReflectionBounces, _settings.MaxRefractionBounces};
+        const ShadingPoint &sp{*isect.shadingPoint};
+        const BounceConfig  config{_settings.MaxReflectionBounces, _settings.MaxRefractionBounces};
 
+        auto directLight{_factory->Create(scene, provider)};
+
+        SampledSpectrum totalRadiance{RGBToSpectrum(sp.c.Emission, lambda)};
         SampledSpectrum throughput{1.0f};
-        SampledSpectrum totalRadiance{0.0f};
         BounceState     bounceState{};
-        auto            directLightIntegrator{_directLightFactory(scene)};
 
-        // --- First surface: already evaluated by the caller, no hit/material eval needed ---
-        // Primary-hit emission is not part of MIS direct-light estimation.
-        totalRadiance += RGBToSpectrum(firstSurface.c.Emission, lambda);
-
-        const IMaterial &firstMaterial{scene.GetMaterial(firstSurface.hit.MatId)};
-
+        const IMaterial                 &firstMaterial{scene.GetMaterial(isect.hit->MatId)};
         const BounceWithConnectionResult firstBounceResult{
-            Detail::SampleBounceWithConnection(firstMaterial, firstSurface, config, bounceState, scene, rng)};
+            Detail::SampleBounceWithConnection(firstMaterial, isect, config, bounceState, scene, rng)};
         const std::optional<BsdfBounceConnection> firstConnection{
             std::holds_alternative<BsdfBounceConnection>(firstBounceResult)
                 ? std::make_optional(std::get<BsdfBounceConnection>(firstBounceResult))
                 : std::nullopt};
-        totalRadiance += directLightIntegrator->Li(firstSurface, scene, rng, firstConnection);
+        totalRadiance += directLight->Li(isect, scene, rng, lambda, provider, firstConnection, callId);
 
         if (!std::holds_alternative<BsdfBounceConnection>(firstBounceResult))
         {
@@ -95,12 +87,10 @@ namespace Restir
         }
 
         const BsdfBounceConnection &firstBounceConnection{std::get<BsdfBounceConnection>(firstBounceResult)};
-
         throughput *= firstBounceConnection.Bounce.ThroughputMul;
         Ray                      currentRay{firstBounceConnection.Bounce.NextRay};
         std::optional<HitRecord> nextHit{firstBounceConnection.Hit};
 
-        // --- Subsequent bounces ---
         for (int bounce{1}; bounce < _maxDepth; ++bounce)
         {
             if (!nextHit.has_value())
@@ -108,10 +98,9 @@ namespace Restir
                 break;
             }
 
-            HitRecord        hit{*nextHit};
-            const IMaterial &material{scene.GetMaterial(hit.MatId)};
-
-            BSDFClosure c{material.GetClosure(hit)};
+            HitRecord        bounceHit{*nextHit};
+            const IMaterial &material{scene.GetMaterial(bounceHit.MatId)};
+            BSDFClosure      c{material.GetClosure(bounceHit)};
             if (!_settings.EnableSubsurface)
             {
                 c.Subsurface = 0.0f;
@@ -119,15 +108,14 @@ namespace Restir
 
             if (c.Opacity < 0.999f && rng.NextFloat() > c.Opacity)
             {
-                currentRay.Origin = hit.Position + currentRay.Dir * 1e-4f;
+                currentRay.Origin = bounceHit.Position + currentRay.Dir * 1e-4f;
                 nextHit           = scene.IntersectScene(currentRay.Origin, currentRay.Dir);
                 --bounce;
                 continue;
             }
 
             const bool isInside{GfDot(c.Normal, currentRay.Dir) > 0.0f};
-            BeerAbsorption(throughput, c, hit.Depth, isInside, lambda);
-
+            BeerAbsorption(throughput, c, bounceHit.Depth, isInside, lambda);
             GfVec3f shadingNormal{c.Normal};
             if (isInside)
             {
@@ -135,15 +123,17 @@ namespace Restir
             }
 
             const std::unique_ptr<IBSDF> bsdfOwner{material.CreateBSDF(BSDFClosure{c})};
-            const ShadingPoint           surface{hit, *bsdfOwner, c, shadingNormal, currentRay.Dir, lambda, isInside};
+            const ShadingPoint           bounceSp{*bsdfOwner, c, shadingNormal, lambda, isInside};
+            const RayIntersection        bounceIsect{currentRay, bounceHit, bounceSp};
 
             const BounceWithConnectionResult bounceResult{
-                Detail::SampleBounceWithConnection(material, surface, config, bounceState, scene, rng)};
+                Detail::SampleBounceWithConnection(material, bounceIsect, config, bounceState, scene, rng)};
             const std::optional<BsdfBounceConnection> bsdfConnection{
                 std::holds_alternative<BsdfBounceConnection>(bounceResult)
                     ? std::make_optional(std::get<BsdfBounceConnection>(bounceResult))
                     : std::nullopt};
-            totalRadiance += throughput * directLightIntegrator->Li(surface, scene, rng, bsdfConnection);
+            totalRadiance += throughput * directLight->Li(bounceIsect, scene, rng, lambda, provider, bsdfConnection,
+                                                          {callId.id + callId.stride, callId.stride});
 
             if (!std::holds_alternative<BsdfBounceConnection>(bounceResult))
             {
@@ -151,13 +141,11 @@ namespace Restir
             }
 
             const BsdfBounceConnection &resolvedConnection{std::get<BsdfBounceConnection>(bounceResult)};
-
-            const BsdfBounceSample &bounceSample{resolvedConnection.Bounce};
-            throughput *= bounceSample.ThroughputMul;
-            currentRay = bounceSample.NextRay;
+            throughput *= resolvedConnection.Bounce.ThroughputMul;
+            currentRay = resolvedConnection.Bounce.NextRay;
             nextHit    = resolvedConnection.Hit;
 
-            if (bounceSample.SkipRoulette)
+            if (resolvedConnection.Bounce.SkipRoulette)
             {
                 continue;
             }
@@ -175,4 +163,5 @@ namespace Restir
 
         return totalRadiance;
     }
+
 } // namespace Restir

@@ -26,9 +26,9 @@ namespace
         {
             return std::make_unique<Restir::GGXBsdf>(std::move(c));
         }
-        [[nodiscard]] Restir::BounceSampleResult SampleBounce(const Restir::ShadingPoint &,
-                                                              const Restir::BounceConfig &, Restir::BounceState &,
-                                                              Restir::Rng &) const override
+        [[nodiscard]] Restir::BounceSampleResult SampleBounce(const Restir::ShadingPoint &, const GfVec3f &,
+                                                              const GfVec3f &, const Restir::BounceConfig &,
+                                                              Restir::BounceState &, Restir::Rng &) const override
         {
             return Restir::BounceSampleError::MaxReflectionBouncesReached;
         }
@@ -56,10 +56,6 @@ namespace
         [[nodiscard]] gsl::span<Restir::ILight *const> GetLights() const override
         {
             return {};
-        }
-        [[nodiscard]] const Restir::ILight *GetSkyLight() const noexcept override
-        {
-            return nullptr;
         }
         [[nodiscard]] const Restir::ILight *GetLightAtHit(const Restir::HitRecord &) const override
         {

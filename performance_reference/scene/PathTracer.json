@@ -1,0 +1,119 @@
+{
+  "samples_needed": null,
+  "render_time_seconds": 849.869,
+  "render_time_runs": 1,
+  "final_noise_rmse": 0.024652108,
+  "noise_source": "log",
+  "exceeded": true,
+  "exceeded_reason": "time budget (900s) \u2014 best noise[log]: 0.02465211 at 8192 samples",
+  "curve": [
+    {
+      "samples": 8,
+      "noise_rmse": 0.810634055,
+      "noise_source": "log",
+      "render_time_seconds": 3.556,
+      "cumulative_time_seconds": 3.556,
+      "mean_estimator_variance": 1.61699e-08,
+      "rmse_vs_ref": 0.0077466
+    },
+    {
+      "samples": 16,
+      "noise_rmse": 0.5773768811,
+      "noise_source": "log",
+      "render_time_seconds": 3.508,
+      "cumulative_time_seconds": 7.064,
+      "mean_estimator_variance": 8.19042e-09,
+      "rmse_vs_ref": 0.00561624
+    },
+    {
+      "samples": 32,
+      "noise_rmse": 0.3996861581,
+      "noise_source": "log",
+      "render_time_seconds": 6.331,
+      "cumulative_time_seconds": 13.395,
+      "mean_estimator_variance": 3.92282e-09,
+      "rmse_vs_ref": 0.00577819
+    },
+    {
+      "samples": 64,
+      "noise_rmse": 0.2809333357,
+      "noise_source": "log",
+      "render_time_seconds": 8.484,
+      "cumulative_time_seconds": 21.879,
+      "mean_estimator_variance": 1.93603e-09,
+      "rmse_vs_ref": 0.00620019
+    },
+    {
+      "samples": 128,
+      "noise_rmse": 0.1955596737,
+      "noise_source": "log",
+      "render_time_seconds": 15.916,
+      "cumulative_time_seconds": 37.795,
+      "mean_estimator_variance": 9.34817e-10,
+      "rmse_vs_ref": 0.00662836
+    },
+    {
+      "samples": 256,
+      "noise_rmse": 0.1373826669,
+      "noise_source": "log",
+      "render_time_seconds": 28.334,
+      "cumulative_time_seconds": 66.129,
+      "mean_estimator_variance": 4.6108e-10,
+      "rmse_vs_ref": 0.00670144
+    },
+    {
+      "samples": 512,
+      "noise_rmse": 0.0985058833,
+      "noise_source": "log",
+      "render_time_seconds": 56.107,
+      "cumulative_time_seconds": 122.236,
+      "mean_estimator_variance": 2.37294e-10,
+      "rmse_vs_ref": 0.00646329
+    },
+    {
+      "samples": 1024,
+      "noise_rmse": 0.0696631042,
+      "noise_source": "log",
+      "render_time_seconds": 106.406,
+      "cumulative_time_seconds": 228.642,
+      "mean_estimator_variance": 1.18685e-10,
+      "rmse_vs_ref": 0.00612391
+    },
+    {
+      "samples": 2048,
+      "noise_rmse": 0.0492503092,
+      "noise_source": "log",
+      "render_time_seconds": 218.131,
+      "cumulative_time_seconds": 446.773,
+      "mean_estimator_variance": 5.93164e-11,
+      "rmse_vs_ref": 0.00508303
+    },
+    {
+      "samples": 4096,
+      "noise_rmse": 0.0348133469,
+      "noise_source": "log",
+      "render_time_seconds": 437.201,
+      "cumulative_time_seconds": 883.974,
+      "mean_estimator_variance": 2.9641e-11,
+      "rmse_vs_ref": 0.00457663
+    },
+    {
+      "samples": 8192,
+      "noise_rmse": 0.024652108,
+      "noise_source": "log",
+      "render_time_seconds": 849.869,
+      "cumulative_time_seconds": 1733.843,
+      "mean_estimator_variance": 1.48612e-11,
+      "rmse_vs_ref": 0.00428435
+    }
+  ],
+  "final_rmse_vs_ref": 0.00428435,
+  "mode": "convergence",
+  "target_variance": 0.01,
+  "resolution_level": 1,
+  "render_settings": {
+    "enableFireflyFilter": "0"
+  },
+  "reference_image": "internal_scene_reference.hdr",
+  "stored_at": "2026-06-19T20:51:45.900759+00:00"
+}

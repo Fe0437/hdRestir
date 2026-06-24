@@ -26,3 +26,4 @@ exploratory_tests/**/*.png
 exploratory_tests/**/*.log
 exploratory_tests/**/*.html
 build*
+performance_reference/**/*.json

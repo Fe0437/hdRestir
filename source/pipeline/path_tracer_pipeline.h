@@ -192,6 +192,10 @@ namespace Restir
         return Detail::CompilePipeline(std::move(name), settings.OutputNames, std::move(passSpecs));
     }
 
+    // PathTracerPostProcess pipeline — not currently registered as a selectable variant.
+    // To re-enable: add PipelineKind::PathTracerPostProcess to renderer_pipeline_state.cpp,
+    // expose GetPathTracerPostProcessPipelineToken(), and hook it into ParsePipelineKind /
+    // MakeBuiltinPipeline.  The pipeline itself is fully implemented here and ready to use.
     [[nodiscard]] inline std::unique_ptr<RenderPipeline>
     makePathTracerPostProcessPipeline(std::string                     &&name     = "PathTracerPost",
                                       const PathTracerPipelineSettings &settings = {})

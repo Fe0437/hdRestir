@@ -1,3 +1,4 @@
+#include "buffer_provider.h"
 #include "light_sampler.h"
 #include "material.h"
 #include "mis_direct_light_integrator.h"
@@ -7,6 +8,7 @@
 #include <cmath>
 #include <memory>
 #include <mutex>
+#include <stdexcept>
 
 namespace
 {
@@ -47,6 +49,7 @@ namespace
         }
 
         [[nodiscard]] Restir::BounceSampleResult SampleBounce(const Restir::ShadingPoint & /*surface*/,
+                                                              const GfVec3f & /*hitPos*/, const GfVec3f & /*rayDir*/,
                                                               const Restir::BounceConfig & /*config*/,
                                                               Restir::BounceState & /*state*/,
                                                               Restir::Rng & /*rng*/) const override
@@ -72,9 +75,9 @@ namespace
             return std::nullopt;
         }
 
-        [[nodiscard]] bool IsConsideringSkyLight() const noexcept override
+        [[nodiscard]] float EvalPdf(const Restir::ILight & /*light*/) const override
         {
-            return true;
+            return 0.0f;
         }
     };
 
@@ -108,11 +111,6 @@ namespace
             return {};
         }
 
-        [[nodiscard]] const Restir::ILight *GetSkyLight() const noexcept override
-        {
-            return nullptr;
-        }
-
         [[nodiscard]] const Restir::ILight *GetLightAtHit(const Restir::HitRecord & /*hit*/) const override
         {
             return nullptr;
@@ -134,6 +132,26 @@ namespace
         mutable std::recursive_mutex _sceneLock{};
     };
 
+    struct NullBufferProvider final : Restir::IBufferProvider
+    {
+        [[nodiscard]] bool Has(std::string_view) const override
+        {
+            return false;
+        }
+        [[nodiscard]] Restir::FrameBuffer &GetChecked(std::string_view) override
+        {
+            throw std::logic_error{"unexpected"};
+        }
+        [[nodiscard]] void *GetOrCreatePersistent(std::string_view, std::size_t) override
+        {
+            throw std::logic_error{"unexpected"};
+        }
+        [[nodiscard]] void *Add(std::string_view, std::size_t) override
+        {
+            throw std::logic_error{"unexpected"};
+        }
+    };
+
     void TestPendingConnectionIsConsumedAndReset()
     {
         Restir::MisDirectLightIntegrator integrator{
@@ -150,11 +168,13 @@ namespace
         Restir::BSDFClosure closure{};
         closure.Normal = hit.Normal;
 
-        DummyBSDF                  bsdf{};
-        const SampledWavelengths   lambda{SampledWavelengths::SampleUniform(0.37f)};
-        const GfVec3f              rayDir{0.0f, 0.0f, -1.0f};
-        const GfVec3f              shadingNormal{0.0f, 0.0f, 1.0f};
-        const Restir::ShadingPoint surface{hit, bsdf, closure, shadingNormal, rayDir, lambda, false};
+        DummyBSDF                     bsdf{};
+        const SampledWavelengths      lambda{SampledWavelengths::SampleUniform(0.37f)};
+        const GfVec3f                 rayDir{0.0f, 0.0f, -1.0f};
+        const GfVec3f                 shadingNormal{0.0f, 0.0f, 1.0f};
+        const Restir::ShadingPoint    surface{bsdf, closure, shadingNormal, lambda, false};
+        const Restir::Ray             ray{GfVec3f{0.0f, 0.0f, 1.0f}, rayDir};
+        const Restir::RayIntersection isect{ray, hit, surface};
 
         Restir::HitRecord lightHit{};
         lightHit.Position = GfVec3f{0.0f, 0.0f, 1.0f};
@@ -172,12 +192,13 @@ namespace
             .Hit = lightHit,
         }};
 
+        NullBufferProvider    provider{};
         Restir::Rng           rng{123u};
-        const SampledSpectrum firstEval{integrator.Li(surface, scene, rng, connection)};
+        const SampledSpectrum firstEval{integrator.Li(isect, scene, rng, lambda, provider, connection, {0, 1})};
         assert(!firstEval.IsBlack());
 
         // Stateless call without a connection should not include BSDF-hit contribution.
-        const SampledSpectrum secondEval{integrator.Li(surface, scene, rng, std::nullopt)};
+        const SampledSpectrum secondEval{integrator.Li(isect, scene, rng, lambda, provider, std::nullopt, {0, 1})};
         assert(secondEval.IsBlack());
     }
 
@@ -197,18 +218,21 @@ namespace
         Restir::BSDFClosure closure{};
         closure.Normal = hit.Normal;
 
-        DummyBSDF                  bsdf{};
-        const SampledWavelengths   lambda{SampledWavelengths::SampleUniform(0.63f)};
-        const GfVec3f              rayDir{0.0f, 0.0f, -1.0f};
-        const GfVec3f              shadingNormal{0.0f, 0.0f, 1.0f};
-        const Restir::ShadingPoint surface{hit, bsdf, closure, shadingNormal, rayDir, lambda, false};
+        DummyBSDF                     bsdf{};
+        const SampledWavelengths      lambda{SampledWavelengths::SampleUniform(0.63f)};
+        const GfVec3f                 rayDir{0.0f, 0.0f, -1.0f};
+        const GfVec3f                 shadingNormal{0.0f, 0.0f, 1.0f};
+        const Restir::ShadingPoint    surface{bsdf, closure, shadingNormal, lambda, false};
+        const Restir::Ray             ray{GfVec3f{0.0f, 0.0f, 1.0f}, rayDir};
+        const Restir::RayIntersection isect{ray, hit, surface};
 
         Restir::HitRecord lightHit{};
         lightHit.Position = GfVec3f{0.0f, 0.0f, 1.0f};
         lightHit.Normal   = GfVec3f{0.0f, 0.0f, -1.0f};
         lightHit.MatId    = 0;
 
-        auto evalWithThroughput = [&](float throughputScale)
+        NullBufferProvider provider{};
+        auto               evalWithThroughput = [&](float throughputScale)
         {
             const std::optional<Restir::BsdfBounceConnection> connection{Restir::BsdfBounceConnection{
                 .Bounce =
@@ -221,7 +245,7 @@ namespace
                 .Hit = lightHit,
             }};
             Restir::Rng                                       rng{777u};
-            return integrator.Li(surface, scene, rng, connection).Average();
+            return integrator.Li(isect, scene, rng, lambda, provider, connection, {0, 1}).Average();
         };
 
         const float fullContribution{evalWithThroughput(1.0f)};

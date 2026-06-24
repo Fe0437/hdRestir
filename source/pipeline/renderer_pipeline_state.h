@@ -47,7 +47,6 @@ namespace Restir
                                  gsl::span<const std::string> requestedOutputNames);
 
     [[nodiscard]] TfToken GetPathTracerPipelineToken();
-    [[nodiscard]] TfToken GetPathTracerPostProcessPipelineToken();
     [[nodiscard]] TfToken GetRISPipelineToken();
 
 } // namespace Restir

@@ -25,9 +25,11 @@ PXR_NAMESPACE_USING_DIRECTIVE
             "restir:path:renderIblBackground")) /* --- RIS                                                                 \
                                                    -------------------------------------------------------------------     \
                                                  */                                                                        \
-        ((risCandidateCount,                                                                                               \
-          "restir:ris:candidateCount")) /* --- Denoiser --------------------------------------------------------------     \
-                                         */                                                                                \
+        ((risCandidateCount, "restir:ris:candidateCount"))((risUseReservoir, "restir:ris:useReservoir"))(                  \
+            (splitScreenRisUseReservoir,                                                                                   \
+             "restir:splitScreen:ris:useReservoir")) /* --- Denoiser                                                       \
+                                                        --------------------------------------------------------------     \
+                                                      */                                                                   \
         ((enableDenoiser, "restir:denoiser:enable"))((enableFireflyFilter, "restir:denoiser:fireflyFilter"))(              \
             (enableChromaticityBlur,                                                                                       \
              "restir:denoiser:chromaticityBlur")) /* --- Post-process                                                      \
@@ -55,15 +57,14 @@ TF_DECLARE_PUBLIC_TOKENS(HdRestirRenderSettingsTokens, HD_RESTIR_RENDER_SETTINGS
 // initializers. SpecT is the caller's concrete spec struct so this header stays
 // independent of Renderer internals.
 #define HD_RESTIR_RENDER_SETTINGS_SPECS(SpecT)                                                                         \
-    SpecT{"Pipeline (0=PathTracer 1=PostProcess 2=RIS)", HdRestirRenderSettingsTokens->pipelineIndex, VtValue(0),      \
-          true},                                                                                                       \
-        SpecT{"Split Screen Right Pipeline (0/1/2)", HdRestirRenderSettingsTokens->splitScreenRightPipelineIndex,      \
-              VtValue(1), true},                                                                                       \
+    SpecT{"Pipeline (0=PathTracer 1=RIS)", HdRestirRenderSettingsTokens->pipelineIndex, VtValue(0), true},             \
+        SpecT{"Split Screen Right Pipeline (0=PathTracer 1=RIS)",                                                      \
+              HdRestirRenderSettingsTokens->splitScreenRightPipelineIndex, VtValue(1), true},                          \
         SpecT{"Primary Pipeline", HdRestirRenderSettingsTokens->primaryPipeline,                                       \
               VtValue(Restir::GetPathTracerPipelineToken()), true},                                                    \
         SpecT{"Enable Split Screen", HdRestirRenderSettingsTokens->enableSplitScreen, VtValue(false), false},          \
         SpecT{"Split Screen Right Pipeline", HdRestirRenderSettingsTokens->splitScreenRightPipeline,                   \
-              VtValue(Restir::GetPathTracerPostProcessPipelineToken()), true},                                         \
+              VtValue(Restir::GetRISPipelineToken()), true},                                                           \
         SpecT{"Target Sample Count (Left)", HdRestirRenderSettingsTokens->targetSampleCount, VtValue(32), false},      \
         SpecT{"Target Sample Count (Right)", HdRestirRenderSettingsTokens->splitScreenTargetSampleCount, VtValue(32),  \
               false},                                                                                                  \
@@ -73,6 +74,9 @@ TF_DECLARE_PUBLIC_TOKENS(HdRestirRenderSettingsTokens, HD_RESTIR_RENDER_SETTINGS
         SpecT{"Max Refraction Bounces", HdRestirRenderSettingsTokens->maxRefractionBounces, VtValue(8), true},         \
         SpecT{"Render IBL Background", HdRestirRenderSettingsTokens->renderIblBackground, VtValue(true), true},        \
         SpecT{"RIS Candidate Count", HdRestirRenderSettingsTokens->risCandidateCount, VtValue(16), true},              \
+        SpecT{"RIS Use Reservoir", HdRestirRenderSettingsTokens->risUseReservoir, VtValue(true), true},                \
+        SpecT{"Split Screen Right RIS Use Reservoir", HdRestirRenderSettingsTokens->splitScreenRisUseReservoir,        \
+              VtValue(true), true},                                                                                    \
         SpecT{"Enable OIDN Denoiser", HdRestirRenderSettingsTokens->enableDenoiser, VtValue(true), true},              \
         SpecT{"Enable Pre-Pass: Firefly Filter", HdRestirRenderSettingsTokens->enableFireflyFilter, VtValue(true),     \
               true},                                                                                                   \

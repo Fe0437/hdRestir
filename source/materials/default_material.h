@@ -19,7 +19,8 @@ namespace Restir
         {
             return std::make_unique<GGXBsdf>(std::move(c));
         }
-        [[nodiscard]] BounceSampleResult SampleBounce(const ShadingPoint &surface, const BounceConfig &config,
+        [[nodiscard]] BounceSampleResult SampleBounce(const ShadingPoint &surface, const GfVec3f &hitPos,
+                                                      const GfVec3f &rayDir, const BounceConfig &config,
                                                       BounceState &state, Rng &rng) const override;
     };
 

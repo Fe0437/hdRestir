@@ -1,12 +1,10 @@
 #pragma once
 
 #include "integration_pass.h"
-#include "lighting_core/uniform_light_sampler.h"
 #include "path_integrator.h"
 #include "ris_direct_light_integrator.h"
 
 #include <memory>
-#include <utility>
 
 namespace Restir
 {
@@ -14,21 +12,16 @@ namespace Restir
     class RISPathTracePass final : public IntegrationPass
     {
       public:
-        explicit RISPathTracePass(int candidateCount = 16, PathTracePassSettings settings = {}, int maxDepth = 32)
-            : RISPathTracePass{NotNullUniquePtr<PathIntegrator>{std::make_unique<PathIntegrator>(
-                  [candidateCount](const IScene &scene)
-                  {
-                      return NotNullUniquePtr<IDirectLightIntegrator>{std::make_unique<RisDirectLightIntegrator>(
-                          NotNullUniquePtr<ILightSampler>{std::make_unique<UniformLightSampler>(scene.GetLights())},
-                          candidateCount)};
-                  },
-                  settings, maxDepth)}}
+        explicit RISPathTracePass(int candidateCount = 16, bool useReservoir = true,
+                                  PathTracePassSettings settings = {}, int maxDepth = 32)
+            : RISPathTracePass{std::make_unique<PathIntegrator>(
+                  RisDirectLightIntegrator::MakeFactory(candidateCount, useReservoir), settings, maxDepth)}
         {
         }
 
       private:
-        explicit RISPathTracePass(NotNullUniquePtr<PathIntegrator> &&integrator)
-            : IntegrationPass{"RISPathTracePass", std::move(integrator)}
+        explicit RISPathTracePass(std::unique_ptr<PathIntegrator> integrator)
+            : IntegrationPass{"RISPathTracePass", NotNullUniquePtr<IIntegrator>{std::move(integrator)}}
         {
         }
     };

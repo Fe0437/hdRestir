@@ -1,0 +1,112 @@
+{
+  "samples_needed": null,
+  "render_time_seconds": 503.941,
+  "render_time_runs": 1,
+  "final_noise_rmse": 0.0445566364,
+  "noise_source": "log",
+  "exceeded": true,
+  "exceeded_reason": "time budget (900s) \u2014 best noise[log]: 0.04455664 at 4096 samples",
+  "curve": [
+    {
+      "samples": 8,
+      "noise_rmse": 0.9086436248,
+      "noise_source": "log",
+      "render_time_seconds": 3.615,
+      "cumulative_time_seconds": 3.615,
+      "mean_estimator_variance": 2.0336e-08,
+      "rmse_vs_ref": 0.00574435
+    },
+    {
+      "samples": 16,
+      "noise_rmse": 0.703900297,
+      "noise_source": "log",
+      "render_time_seconds": 3.94,
+      "cumulative_time_seconds": 7.555,
+      "mean_estimator_variance": 1.21867e-08,
+      "rmse_vs_ref": 0.00592377
+    },
+    {
+      "samples": 32,
+      "noise_rmse": 0.4947326596,
+      "noise_source": "log",
+      "render_time_seconds": 5.847,
+      "cumulative_time_seconds": 13.402,
+      "mean_estimator_variance": 6.01651e-09,
+      "rmse_vs_ref": 0.0049509
+    },
+    {
+      "samples": 64,
+      "noise_rmse": 0.3614942422,
+      "noise_source": "log",
+      "render_time_seconds": 10.785,
+      "cumulative_time_seconds": 24.187,
+      "mean_estimator_variance": 3.20981e-09,
+      "rmse_vs_ref": 0.00495052
+    },
+    {
+      "samples": 128,
+      "noise_rmse": 0.2653806268,
+      "noise_source": "log",
+      "render_time_seconds": 20.535,
+      "cumulative_time_seconds": 44.722,
+      "mean_estimator_variance": 1.72456e-09,
+      "rmse_vs_ref": 0.00400222
+    },
+    {
+      "samples": 256,
+      "noise_rmse": 0.1770503102,
+      "noise_source": "log",
+      "render_time_seconds": 35.712,
+      "cumulative_time_seconds": 80.434,
+      "mean_estimator_variance": 7.67185e-10,
+      "rmse_vs_ref": 0.00452054
+    },
+    {
+      "samples": 512,
+      "noise_rmse": 0.1251629377,
+      "noise_source": "log",
+      "render_time_seconds": 70.847,
+      "cumulative_time_seconds": 151.28,
+      "mean_estimator_variance": 3.83778e-10,
+      "rmse_vs_ref": 0.00517911
+    },
+    {
+      "samples": 1024,
+      "noise_rmse": 0.0874140224,
+      "noise_source": "log",
+      "render_time_seconds": 128.941,
+      "cumulative_time_seconds": 280.221,
+      "mean_estimator_variance": 1.87227e-10,
+      "rmse_vs_ref": 0.00463655
+    },
+    {
+      "samples": 2048,
+      "noise_rmse": 0.0626859753,
+      "noise_source": "log",
+      "render_time_seconds": 262.076,
+      "cumulative_time_seconds": 542.298,
+      "mean_estimator_variance": 9.62812e-11,
+      "rmse_vs_ref": 0.00405083
+    },
+    {
+      "samples": 4096,
+      "noise_rmse": 0.0445566364,
+      "noise_source": "log",
+      "render_time_seconds": 503.941,
+      "cumulative_time_seconds": 1046.238,
+      "mean_estimator_variance": 4.86442e-11,
+      "rmse_vs_ref": 0.00514324
+    }
+  ],
+  "final_rmse_vs_ref": 0.00514324,
+  "mode": "convergence",
+  "target_variance": 0.01,
+  "resolution_level": 1,
+  "render_settings": {
+    "risUseReservoir": "0",
+    "risCandidateCount": "1",
+    "enableFireflyFilter": "0"
+  },
+  "reference_image": "internal_scene_reference.hdr",
+  "stored_at": "2026-06-18T06:02:58.111643+00:00"
+}

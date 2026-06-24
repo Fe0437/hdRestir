@@ -123,13 +123,13 @@ namespace Restir
         };
     }
 
-    BounceSampleResult PreviewSurfaceMaterial::SampleBounce(const ShadingPoint &surface, const BounceConfig &config,
+    BounceSampleResult PreviewSurfaceMaterial::SampleBounce(const ShadingPoint &surface, const GfVec3f &hitPos,
+                                                            const GfVec3f &rayDir, const BounceConfig &config,
                                                             BounceState &state, Rng &rng) const
     {
         const BSDFClosure        &c{surface.c};
         const GfVec3f            &shadingNormal{surface.shadingNormal};
-        const GfVec3f            &currentRayDir{surface.rayDir};
-        const GfVec3f            &hitPos{surface.hit.Position};
+        const GfVec3f            &currentRayDir{rayDir};
         const SampledWavelengths &lambda{surface.lambda};
         const bool                isInside{surface.isInside};
 

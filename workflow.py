@@ -1,5 +1,5 @@
 import argparse
-import os, sys, subprocess, platform, shutil
+import os, re, sys, subprocess, platform, shutil
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 BUILD_DIR    = os.path.join(PROJECT_ROOT, "build")
@@ -196,6 +196,10 @@ def build(debug=False):
         f"-DVCPKG_TARGET_TRIPLET={triplet}",
         f"-DCMAKE_BUILD_TYPE={build_type}",
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+        # Always compile the runtime metrics (AccumulationPass variance logging):
+        # perf_test.py parses these logs for float-precision convergence numbers,
+        # so they must be present in Release builds too. Cost is negligible.
+        "-DMETRICS_ENABLED=ON",
     ]
     if OS == "Darwin":
         cmake_conf.append("-DCMAKE_OSX_ARCHITECTURES=arm64")
@@ -286,17 +290,64 @@ def _resolve_capture_output_path(output_path):
     return os.path.join(images_root, output_path)
 
 
-def _render_setting_env_name(token_name):
+# Render-setting keys are resolved against the token table in
+# restir_render_settings.h, and the env-var name is derived from the TOKEN
+# STRING with the exact same rule as MakeRenderSettingEnvironmentName in
+# renderer.cpp. Deriving from the camelCase identifier instead (the old
+# behaviour) silently produced dead env vars whenever the identifier did not
+# match the token path (e.g. enableFireflyFilter vs restir:denoiser:fireflyFilter).
+
+_RENDER_SETTINGS_HEADER = os.path.join(
+    PROJECT_ROOT, "source", "renderer", "restir_render_settings.h")
+_TOKEN_TUPLE_RE = re.compile(r'\(?\(\s*(\w+)[\s\\]*,[\s\\]*"([^"]+)"[\s\\]*\)\)?', re.DOTALL)
+
+
+def _load_render_setting_tokens():
+    """Return {cppIdentifier: tokenString} parsed from restir_render_settings.h."""
+    with open(_RENDER_SETTINGS_HEADER, encoding="utf-8") as f:
+        return dict(_TOKEN_TUPLE_RE.findall(f.read()))
+
+
+def _resolve_render_setting_token(key, tokens):
+    """Accept a cpp identifier ('risUseReservoir'), a token path
+    ('ris:useReservoir') or a full token ('restir:ris:useReservoir') and
+    return the full token string. Raises on unknown keys instead of
+    silently exporting a dead env var."""
+    if key in tokens:
+        return tokens[key]
+    token_values = set(tokens.values())
+    if key in token_values:
+        return key
+    prefixed = f"restir:{key}"
+    if prefixed in token_values:
+        return prefixed
+    known = sorted(tokens) + sorted(t[len("restir:"):] for t in token_values)
+    raise ValueError(
+        f"Unknown render setting {key!r}. Known keys (identifier or token "
+        f"path): {', '.join(known)}")
+
+
+def _render_setting_env_name(token):
+    """Mirror MakeRenderSettingEnvironmentName in renderer.cpp exactly:
+    drop the root namespace ('restir:'), then ':' -> '_' and camelCase
+    boundaries get a '_', everything uppercased."""
+    text = token.split(":", 1)[1] if ":" in token else token
     pieces = []
-    for index, char in enumerate(token_name):
-        if char.isupper() and index > 0:
+    for index, char in enumerate(text):
+        if char == ":":
             pieces.append("_")
-        pieces.append(char.upper())
+        else:
+            if char.isupper() and index > 0 and text[index - 1] != ":":
+                pieces.append("_")
+            pieces.append(char.upper())
     return "HDRESTIR_" + "".join(pieces)
 
 
-def _set_render_setting_override(env_vars, token_name, value):
-    env_vars[_render_setting_env_name(token_name)] = str(value)
+def _set_render_setting_override(env_vars, key, value, tokens=None):
+    if tokens is None:
+        tokens = _load_render_setting_tokens()
+    token = _resolve_render_setting_token(key, tokens)
+    env_vars[_render_setting_env_name(token)] = str(value)
 
 
 def _apply_capture_render_setting_overrides(
@@ -304,8 +355,9 @@ def _apply_capture_render_setting_overrides(
     *,
     render_settings,
 ):
-    for token_name, value in render_settings:
-        _set_render_setting_override(env_vars, token_name, value)
+    tokens = _load_render_setting_tokens()
+    for key, value in render_settings:
+        _set_render_setting_override(env_vars, key, value, tokens)
 
 
 def launch(scene_path, *, render_settings=None):

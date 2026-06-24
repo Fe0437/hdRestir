@@ -9,6 +9,16 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace Restir
 {
 
+    UniformLightSampler::UniformLightSampler(gsl::span<ILight *const> lights)
+        : _lights{lights}, _lightSelectPdf{lights.empty() ? 0.0f : 1.0f / static_cast<float>(lights.size())}
+    {
+        _lightSet.reserve(lights.size());
+        for (const ILight *light : lights)
+        {
+            _lightSet.insert(light);
+        }
+    }
+
     std::optional<LightCandidate> UniformLightSampler::ProposeCandidate(const GfVec3f &hitPos, Rng &rng) const
     {
         if (_lights.empty())
@@ -25,18 +35,20 @@ namespace Restir
             return std::nullopt;
         }
 
-        const float lightSelectPdf{1.0f / static_cast<float>(_lights.size())};
-
         // Bake the light-selection probability into Ls.Pdf so EvaluateLightSample can use it directly.
         LightSample ls = *lightSample;
-        ls.Pdf.value *= lightSelectPdf;
+        ls.Pdf.value *= _lightSelectPdf;
 
         return LightCandidate{
-            .Light      = &light,
-            .LightIndex = static_cast<int>(lightIndex),
-            .Ls         = ls,
-            .Pdf        = ls.Pdf,
+            .Light = &light,
+            .Ls    = ls,
+            .Pdf   = ls.Pdf,
         };
+    }
+
+    float UniformLightSampler::EvalPdf(const ILight &light) const
+    {
+        return _lightSet.contains(&light) ? _lightSelectPdf : 0.0f;
     }
 
 } // namespace Restir

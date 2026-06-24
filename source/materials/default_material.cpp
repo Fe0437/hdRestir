@@ -62,7 +62,8 @@ namespace Restir
         };
     }
 
-    BounceSampleResult DefaultMaterial::SampleBounce(const ShadingPoint &surface, const BounceConfig &config,
+    BounceSampleResult DefaultMaterial::SampleBounce(const ShadingPoint &surface, const GfVec3f &hitPos,
+                                                     const GfVec3f & /*rayDir*/, const BounceConfig & /*config*/,
                                                      [[maybe_unused]] BounceState &state, Rng &rng) const
     {
         const ONB             onb{ONB::fromNormal(surface.shadingNormal)};
@@ -73,11 +74,10 @@ namespace Restir
         const float           safePdf{std::max(rawPdf, 1e-6f)};
         const float           throughputScale{rawPdf / safePdf};
         const SampledSpectrum throughputMul{RGBToSpectrum(surface.c.BaseColor, surface.lambda) * throughputScale};
-        // bsdf(wi) = BaseColor/π, so bsdf*cos = BaseColor * nDotL / π — computed directly, no pdf
         const SampledSpectrum integrandMul{RGBToSpectrum(surface.c.BaseColor, surface.lambda) * (nDotL / kPi)};
 
         return BsdfBounceSample{
-            .NextRay                 = {surface.hit.Position + surface.shadingNormal * 1e-4f, wi},
+            .NextRay                 = {hitPos + surface.shadingNormal * 1e-4f, wi},
             .ThroughputMul           = throughputMul,
             .ThroughputIntegrandMul  = integrandMul,
             .BsdfPdf                 = {safePdf, PdfSpace::SolidAngle},

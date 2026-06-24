@@ -1,21 +1,15 @@
 #pragma once
 
-#include "camera_ray.h"
-#include "hit_record.h"
+#include "buffer_provider.h"
+#include "buffer_user.h"
+#include "call_index.h"
+#include "ray_intersection.h"
 #include "rng.h"
 #include "scene_interface.h"
 #include "spectrum.h"
 
-#include <optional>
-
 namespace Restir
 {
-
-    struct RayIntersection
-    {
-        Ray                      ray{};
-        std::optional<HitRecord> hit{};
-    };
 
     class IIntegrator
     {
@@ -23,9 +17,15 @@ namespace Restir
         virtual ~IIntegrator() = default;
 
         [[nodiscard]] virtual SampledSpectrum Li(const RayIntersection &isect, const IScene &scene, Rng &rng,
-                                                 const SampledWavelengths &lambda) const = 0;
+                                                 const SampledWavelengths &lambda, IBufferProvider &provider,
+                                                 CallIndex callId) const = 0;
 
-        [[nodiscard]] virtual SampledSpectrum Li(const ShadingPoint &surface, const IScene &scene, Rng &rng) const = 0;
+        // Returns the buffer stager for this integrator, if any.
+        // Called once per frame before the pixel loop to declare persistent buffers.
+        [[nodiscard]] virtual IBufferStager *GetBufferStager()
+        {
+            return nullptr;
+        }
     };
 
 } // namespace Restir

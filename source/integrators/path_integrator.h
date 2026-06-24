@@ -1,12 +1,9 @@
 #pragma once
 
-#include "direct_light_integrator_interface.h"
+#include "direct_light_integrator_factory.h"
 #include "integrator.h"
-#include "material.h"
 #include "not_null_unique_ptr.h"
 
-#include <functional>
-#include <memory>
 #include <utility>
 
 namespace Restir
@@ -23,15 +20,17 @@ namespace Restir
     class PathIntegrator final : public IIntegrator
     {
       public:
-        using DirectLightIntegratorFactory = std::function<NotNullUniquePtr<IDirectLightIntegrator>(const IScene &)>;
-
-        explicit PathIntegrator(DirectLightIntegratorFactory directLightFactory, PathTracePassSettings settings = {},
-                                int maxDepth = 32);
+        explicit PathIntegrator(NotNullUniquePtr<IDirectLightIntegratorFactory> &&factory,
+                                PathTracePassSettings settings = {}, int maxDepth = 32);
 
         [[nodiscard]] SampledSpectrum Li(const RayIntersection &isect, const IScene &scene, Rng &rng,
-                                         const SampledWavelengths &lambda) const override;
+                                         const SampledWavelengths &lambda, IBufferProvider &provider,
+                                         CallIndex callId) const override;
 
-        [[nodiscard]] SampledSpectrum Li(const ShadingPoint &surface, const IScene &scene, Rng &rng) const override;
+        [[nodiscard]] IBufferStager *GetBufferStager() override
+        {
+            return _factory->GetBufferStager();
+        }
 
         void SetSettings(PathTracePassSettings settings)
         {
@@ -39,9 +38,14 @@ namespace Restir
         }
 
       private:
-        PathTracePassSettings        _settings;
-        int                          _maxDepth;
-        DirectLightIntegratorFactory _directLightFactory;
+        // Called once isect.shadingPoint is guaranteed to be populated.
+        [[nodiscard]] SampledSpectrum _li(const RayIntersection &isect, const IScene &scene, Rng &rng,
+                                          const SampledWavelengths &lambda, IBufferProvider &provider,
+                                          CallIndex callId) const;
+
+        PathTracePassSettings                           _settings;
+        int                                             _maxDepth;
+        NotNullUniquePtr<IDirectLightIntegratorFactory> _factory;
     };
 
 } // namespace Restir

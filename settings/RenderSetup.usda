@@ -5,8 +5,8 @@
 
 def RenderSettings "RenderSettings" (
     variants = {
-        string pipelineMode = "PathTracer"
-        string splitScreenRightPipelineMode = "PathTracerPostProcess"
+        string pipelineMode = "RESTIR"
+        string splitScreenRightPipelineMode = "RIS"
     }
     prepend variantSets = ["pipelineMode", "splitScreenRightPipelineMode"]
 )
@@ -17,68 +17,64 @@ def RenderSettings "RenderSettings" (
     int   restir:resolutionLevel                    = 2
     bool  restir:splitScreen:enable                 = false
 
+    # Path tracing
+    bool  restir:path:enableSubsurface              = true
+    int   restir:path:maxReflectionBounces          = 8
+    int   restir:path:maxRefractionBounces          = 8
+    bool  restir:path:renderIblBackground           = true
+
+    # Denoiser
+    bool  restir:denoiser:enable                    = true
+    bool  restir:denoiser:fireflyFilter             = true
+    bool  restir:denoiser:chromaticityBlur          = true
+
+    # RIS
+    int   restir:ris:candidateCount                 = 16
+
     # Camera
-    bool  restir:camera:depthOfField          = false
-    float restir:camera:focalLength           = 50
-    float restir:camera:fStop                 = 5.6
-    float restir:camera:focusDistance         = 10
-    int   restir:camera:bokehBlades           = 0
-    bool  restir:camera:physicalExposure      = false
-    float restir:camera:iso                   = 100
-    float restir:camera:shutterSpeed          = 0.02
+    bool  restir:camera:depthOfField                = false
+    float restir:camera:focalLength                 = 50
+    float restir:camera:fStop                       = 5.6
+    float restir:camera:focusDistance               = 10
+    int   restir:camera:bokehBlades                 = 0
+    bool  restir:camera:physicalExposure            = false
+    float restir:camera:iso                         = 100
+    float restir:camera:shutterSpeed                = 0.02
 
     # Sky
-    bool  restir:sky:enable                   = false
-    float restir:sky:timeOfDay                = 12
+    bool  restir:sky:enable                         = false
+    float restir:sky:timeOfDay                      = 12
 
     # Debug
-    bool  restir:debug:overlay                = false
+    bool  restir:debug:overlay                      = false
 
     # --- Pipeline variants ---------------------------------------------------
     variantSet "pipelineMode" = {
         "PathTracer" {
-            token restir:primaryPipeline            = "PathTracer"
-            bool  restir:path:enableSubsurface      = true
-            int   restir:path:maxReflectionBounces  = 8
-            int   restir:path:maxRefractionBounces  = 8
-            bool  restir:path:renderIblBackground   = true
-        }
-        "PathTracerPostProcess" {
-            token restir:primaryPipeline              = "PathTracerPostProcess"
-            bool  restir:path:enableSubsurface        = true
-            int   restir:path:maxReflectionBounces    = 8
-            int   restir:path:maxRefractionBounces    = 8
-            bool  restir:path:renderIblBackground     = true
-            bool  restir:denoiser:enable              = true
-            bool  restir:denoiser:fireflyFilter       = true
-            bool  restir:denoiser:chromaticityBlur    = true
-            bool  restir:postProcess:lensFlare        = false
-            float restir:postProcess:lensDistortion   = 0
-            float restir:postProcess:chromaticAberration = 0
+            token restir:primaryPipeline          = "PathTracer"
         }
         "RIS" {
-            token restir:primaryPipeline              = "RIS"
-            bool  restir:path:enableSubsurface        = true
-            int   restir:path:maxReflectionBounces    = 8
-            int   restir:path:maxRefractionBounces    = 8
-            bool  restir:path:renderIblBackground     = true
-            bool  restir:denoiser:enable              = true
-            bool  restir:denoiser:fireflyFilter       = true
-            bool  restir:denoiser:chromaticityBlur    = true
-            int   restir:ris:candidateCount           = 16
+            token restir:primaryPipeline          = "RIS"
+            bool  restir:ris:useReservoir         = false
+        }
+        "RESTIR" {
+            token restir:primaryPipeline          = "RIS"
+            bool  restir:ris:useReservoir         = true
         }
     }
 
     # --- Split-screen right pipeline variants --------------------------------
     variantSet "splitScreenRightPipelineMode" = {
         "PathTracer" {
-            token restir:splitScreen:rightPipeline = "PathTracer"
-        }
-        "PathTracerPostProcess" {
-            token restir:splitScreen:rightPipeline = "PathTracerPostProcess"
+            token restir:splitScreen:rightPipeline          = "PathTracer"
         }
         "RIS" {
-            token restir:splitScreen:rightPipeline = "RIS"
+            token restir:splitScreen:rightPipeline          = "RIS"
+            bool  restir:splitScreen:ris:useReservoir       = false
+        }
+        "RESTIR" {
+            token restir:splitScreen:rightPipeline          = "RIS"
+            bool  restir:splitScreen:ris:useReservoir       = true
         }
     }
 }

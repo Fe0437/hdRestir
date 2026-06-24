@@ -3,16 +3,12 @@
 #include "integrator.h"
 #include "materials/material.h"
 
+#include <cstddef>
 #include <optional>
+#include <variant>
 
 namespace Restir
 {
-
-    struct BsdfBounceConnection
-    {
-        BsdfBounceSample         Bounce{};
-        std::optional<HitRecord> Hit{};
-    };
 
     using BounceWithConnectionResult = std::variant<BsdfBounceConnection, BounceSampleResult>;
 
@@ -20,10 +16,14 @@ namespace Restir
     {
 
         [[nodiscard]] inline BounceWithConnectionResult
-        SampleBounceWithConnection(const IMaterial &material, const ShadingPoint &surface, const BounceConfig &config,
+        SampleBounceWithConnection(const IMaterial &material, const RayIntersection &isect, const BounceConfig &config,
                                    BounceState &bounceState, const IScene &scene, Rng &rng)
         {
-            const BounceSampleResult bounce{material.SampleBounce(surface, config, bounceState, rng)};
+            const ShadingPoint &surface{*isect.shadingPoint};
+            const GfVec3f      &hitPos{isect.hit->Position};
+            const GfVec3f      &rayDir{isect.ray.Dir};
+
+            const BounceSampleResult bounce{material.SampleBounce(surface, hitPos, rayDir, config, bounceState, rng)};
 
             if (std::holds_alternative<BounceSampleError>(bounce))
             {
@@ -31,7 +31,6 @@ namespace Restir
             }
 
             const BsdfBounceSample &bounceSample{std::get<BsdfBounceSample>(bounce)};
-
             return BounceWithConnectionResult{
                 std::in_place_type<BsdfBounceConnection>,
                 BsdfBounceConnection{
@@ -47,8 +46,12 @@ namespace Restir
       public:
         ~IDirectLightIntegrator() override = default;
 
-        [[nodiscard]] virtual SampledSpectrum Li(const ShadingPoint &surface, const IScene &scene, Rng &rng,
-                                                 const std::optional<BsdfBounceConnection> &bsdfConnection) const = 0;
+        // Per-bounce call: same as IIntegrator::Li but with an extra bsdfConnection for MIS.
+        // isect.shadingPoint must be populated.
+        [[nodiscard]] virtual SampledSpectrum Li(const RayIntersection &isect, const IScene &scene, Rng &rng,
+                                                 const SampledWavelengths &lambda, IBufferProvider &provider,
+                                                 const std::optional<BsdfBounceConnection> &bsdfConnection,
+                                                 CallIndex                                  callId) const = 0;
     };
 
 } // namespace Restir

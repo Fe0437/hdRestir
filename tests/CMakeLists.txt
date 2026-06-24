@@ -2,7 +2,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 set(HDRESTIR_SLOW_TEST_TIMEOUT_SECONDS "5000" CACHE STRING "Timeout in seconds for slow render-dependent tests")
 
-foreach(_test IN ITEMS test_camera test_frame_buffer test_rng test_split_screen test_scene_material_lookup test_renderer_aov_handoff test_mis_direct_light_integrator)
+foreach(_test IN ITEMS test_camera test_frame_buffer test_rng test_split_screen test_scene_material_lookup test_renderer_aov_handoff test_mis_direct_light_integrator test_reservoir)
     add_executable(${_test} ${_test}.cpp ${SOURCE_CPP})
     target_include_directories(${_test} PRIVATE ${SOURCE_INCLUDE_DIRS})
     target_link_libraries(${_test} PRIVATE
@@ -23,54 +23,95 @@ endforeach()
 
 set(HDRESTIR_INTERNAL_REFERENCE_SCENE "${PROJECT_SOURCE_DIR}/example_scenes/scene.usda")
 set(HDRESTIR_INTERNAL_REFERENCE_IMAGE "${PROJECT_SOURCE_DIR}/images/reference/internal_scene_reference.hdr")
-set(HDRESTIR_CAPTURE_MSE_THRESHOLD "5e-8" CACHE STRING "Maximum normalized MSE allowed for HDR capture regression" FORCE)
+set(HDRESTIR_CAPTURE_MSE_THRESHOLD "5e-8" CACHE STRING "Maximum normalized MSE for same-pipeline HDR regression test" FORCE)
+set(HDRESTIR_CROSS_PIPELINE_MSE_THRESHOLD "1e-4" CACHE STRING "Maximum normalized MSE for cross-pipeline convergence test")
 set(HDRESTIR_REFERENCE_TARGET_SAMPLE_COUNT "2048" CACHE STRING "Target sample count used when capturing the internal HDR reference test scene")
 set(HDRESTIR_REFERENCE_RESOLUTION_LEVEL "0" CACHE STRING "Resolution level used when capturing the internal HDR reference test scene")
 if(HDRESTIR_REFERENCE_TARGET_SAMPLE_COUNT STREQUAL "256" OR HDRESTIR_REFERENCE_TARGET_SAMPLE_COUNT STREQUAL "1024")
     set(HDRESTIR_REFERENCE_TARGET_SAMPLE_COUNT "2048" CACHE STRING "Target sample count used when capturing the internal HDR reference test scene" FORCE)
 endif()
 
-if(EXISTS "${HDRESTIR_INTERNAL_REFERENCE_SCENE}" AND EXISTS "${HDRESTIR_INTERNAL_REFERENCE_IMAGE}")
-    add_test(
-        NAME test_hdr_capture_mse
-        COMMAND ${Python3_EXECUTABLE}
-            ${PROJECT_SOURCE_DIR}/tests/test_hdr_capture_mse.py
-            --workflow ${PROJECT_SOURCE_DIR}/workflow.py
-            --scene ${HDRESTIR_INTERNAL_REFERENCE_SCENE}
-            --reference ${HDRESTIR_INTERNAL_REFERENCE_IMAGE}
-            --output ${CMAKE_CURRENT_BINARY_DIR}/reference_captures/internal_scene_current.hdr
-            --threshold ${HDRESTIR_CAPTURE_MSE_THRESHOLD}
-            --render-setting targetSampleCount=${HDRESTIR_REFERENCE_TARGET_SAMPLE_COUNT}
-            --render-setting enableSplitScreen=0
-            --render-setting resolutionLevel=${HDRESTIR_REFERENCE_RESOLUTION_LEVEL}
-            --render-setting enableFireflyFilter=1
-    )
-    set_tests_properties(test_hdr_capture_mse PROPERTIES
-        LABELS "normal"
-        TIMEOUT ${HDRESTIR_SLOW_TEST_TIMEOUT_SECONDS}
-    )
-endif()
+# Common render settings shared by all pipeline reference tests.
+# Each test appends --render-setting primaryPipeline=<X>.
+set(_HDRESTIR_REF_COMMON_SETTINGS
+    --render-setting targetSampleCount=${HDRESTIR_REFERENCE_TARGET_SAMPLE_COUNT}
+    --render-setting enableSplitScreen=0
+    --render-setting resolutionLevel=${HDRESTIR_REFERENCE_RESOLUTION_LEVEL}
+    --render-setting enableFireflyFilter=1
+)
+
+# PathTracer vs its own reference — regression test, tight threshold.
+add_test(
+    NAME test_hdr_capture_mse
+    COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tests/test_hdr_capture_mse.py
+        --workflow ${PROJECT_SOURCE_DIR}/workflow.py
+        --scene ${HDRESTIR_INTERNAL_REFERENCE_SCENE}
+        --reference ${HDRESTIR_INTERNAL_REFERENCE_IMAGE}
+        --output ${CMAKE_CURRENT_BINARY_DIR}/reference_captures/internal_scene_current.hdr
+        --threshold ${HDRESTIR_CAPTURE_MSE_THRESHOLD}
+        ${_HDRESTIR_REF_COMMON_SETTINGS}
+        --render-setting primaryPipeline=PathTracer
+)
+set_tests_properties(test_hdr_capture_mse PROPERTIES
+    LABELS "normal"
+    TIMEOUT ${HDRESTIR_SLOW_TEST_TIMEOUT_SECONDS}
+)
+
+# RIS vs PathTracer reference — convergence test: both algorithms must produce the
+# same image within the cross-pipeline threshold.
+add_test(
+    NAME test_hdr_capture_mse_ris
+    COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tests/test_hdr_capture_mse.py
+        --workflow ${PROJECT_SOURCE_DIR}/workflow.py
+        --scene ${HDRESTIR_INTERNAL_REFERENCE_SCENE}
+        --reference ${HDRESTIR_INTERNAL_REFERENCE_IMAGE}
+        --output ${CMAKE_CURRENT_BINARY_DIR}/reference_captures/internal_scene_ris_current.hdr
+        --threshold ${HDRESTIR_CROSS_PIPELINE_MSE_THRESHOLD}
+        ${_HDRESTIR_REF_COMMON_SETTINGS}
+        --render-setting primaryPipeline=RIS
+)
+set_tests_properties(test_hdr_capture_mse_ris PROPERTIES
+    LABELS "normal"
+    TIMEOUT ${HDRESTIR_SLOW_TEST_TIMEOUT_SECONDS}
+)
+
+set(HDRESTIR_PERF_SAMPLE_COUNT "64" CACHE STRING "Sample count per render used in performance tests")
+set(HDRESTIR_PERF_SCENE "${PROJECT_SOURCE_DIR}/example_scenes/scene.usda")
+
+add_test(
+    NAME perf_test_all_pipelines
+    COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tests/perf_test.py
+        --workflow ${PROJECT_SOURCE_DIR}/workflow.py
+        --scene ${HDRESTIR_PERF_SCENE}
+        --sample-count ${HDRESTIR_PERF_SAMPLE_COUNT}
+        --tmp-dir ${CMAKE_CURRENT_BINARY_DIR}/perf_test_captures
+)
+set_tests_properties(perf_test_all_pipelines PROPERTIES
+    LABELS "performance"
+    TIMEOUT ${HDRESTIR_SLOW_TEST_TIMEOUT_SECONDS}
+)
 
 set(HDRESTIR_MIS_AREA_LIGHTS_SCENE "${PROJECT_SOURCE_DIR}/example_scenes/mis_area_lights_scene.usda")
 set(HDRESTIR_MIS_AREA_LIGHTS_REFERENCE "${PROJECT_SOURCE_DIR}/images/reference/mis_area_lights_reference.hdr")
 
-if(EXISTS "${HDRESTIR_MIS_AREA_LIGHTS_SCENE}" AND EXISTS "${HDRESTIR_MIS_AREA_LIGHTS_REFERENCE}")
-    add_test(
-        NAME test_hdr_capture_mse_mis_area_lights
-        COMMAND ${Python3_EXECUTABLE}
-            ${PROJECT_SOURCE_DIR}/tests/test_hdr_capture_mse.py
-            --workflow ${PROJECT_SOURCE_DIR}/workflow.py
-            --scene ${HDRESTIR_MIS_AREA_LIGHTS_SCENE}
-            --reference ${HDRESTIR_MIS_AREA_LIGHTS_REFERENCE}
-            --output ${CMAKE_CURRENT_BINARY_DIR}/reference_captures/mis_area_lights_current.hdr
-            --threshold ${HDRESTIR_CAPTURE_MSE_THRESHOLD}
-            --render-setting targetSampleCount=${HDRESTIR_REFERENCE_TARGET_SAMPLE_COUNT}
-            --render-setting enableSplitScreen=0
-            --render-setting resolutionLevel=${HDRESTIR_REFERENCE_RESOLUTION_LEVEL}
-            --render-setting enableFireflyFilter=1
-    )
-    set_tests_properties(test_hdr_capture_mse_mis_area_lights PROPERTIES
-        LABELS "normal"
-        TIMEOUT ${HDRESTIR_SLOW_TEST_TIMEOUT_SECONDS}
-    )
-endif()
+add_test(
+    NAME test_hdr_capture_mse_mis_area_lights
+    COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tests/test_hdr_capture_mse.py
+        --workflow ${PROJECT_SOURCE_DIR}/workflow.py
+        --scene ${HDRESTIR_MIS_AREA_LIGHTS_SCENE}
+        --reference ${HDRESTIR_MIS_AREA_LIGHTS_REFERENCE}
+        --output ${CMAKE_CURRENT_BINARY_DIR}/reference_captures/mis_area_lights_current.hdr
+        --threshold ${HDRESTIR_CAPTURE_MSE_THRESHOLD}
+        --render-setting targetSampleCount=${HDRESTIR_REFERENCE_TARGET_SAMPLE_COUNT}
+        --render-setting enableSplitScreen=0
+        --render-setting resolutionLevel=${HDRESTIR_REFERENCE_RESOLUTION_LEVEL}
+        --render-setting enableFireflyFilter=1
+)
+set_tests_properties(test_hdr_capture_mse_mis_area_lights PROPERTIES
+    LABELS "normal"
+    TIMEOUT ${HDRESTIR_SLOW_TEST_TIMEOUT_SECONDS}
+)

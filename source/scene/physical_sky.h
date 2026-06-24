@@ -13,7 +13,7 @@ namespace Restir
 
     // Analytical Rayleigh/Mie sky with a single sun.
     // Implements IEnvironment for sky-miss sampling and ILight for sun direct-lighting.
-    class PhysicalSky final : public IEnvironment, public ILight
+    class PhysicalSky final : public IEnvironment
     {
       public:
         // Sun direction and radiance color for one direct-lighting sample.

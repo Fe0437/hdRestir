@@ -117,6 +117,7 @@ namespace Restir
         {
             double meanEstimatorVariance{0.0};
             double maxEstimatorVariance{0.0};
+            double meanLuminance{0.0};
             for (std::size_t i = 0; i < count; ++i)
             {
                 const double n{static_cast<double>(sampleCount)};
@@ -126,11 +127,14 @@ namespace Restir
                 const double estimatorVariance{sampleVariance / n};
                 meanEstimatorVariance += estimatorVariance;
                 maxEstimatorVariance = std::max(maxEstimatorVariance, estimatorVariance);
+                meanLuminance += mean;
             }
 
             meanEstimatorVariance /= static_cast<double>(count);
-            METRICS_LOG("AccumulationPass: samples=%d mean estimator variance=%g max estimator variance=%g",
-                        sampleCount, meanEstimatorVariance, maxEstimatorVariance);
+            meanLuminance /= static_cast<double>(count);
+            METRICS_LOG(
+                "AccumulationPass: samples=%d mean estimator variance=%g max estimator variance=%g mean luminance=%g",
+                sampleCount, meanEstimatorVariance, maxEstimatorVariance, meanLuminance);
 
             ctx.buffers.AddOrGetPersistent(kVarianceOutputName, sizeof(VarianceStats), 1);
             ctx.buf<VarianceStats>(kVarianceOutputName)[0] = VarianceStats{

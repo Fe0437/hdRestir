@@ -99,7 +99,6 @@ namespace Restir
         [[nodiscard]] const IMaterial                  &GetMaterial(int matId) const override;
         [[nodiscard]] const IEnvironment               *GetEnvironment() const override;
         [[nodiscard]] gsl::span<ILight *const>          GetLights() const override;
-        [[nodiscard]] const ILight                     *GetSkyLight() const noexcept override;
         [[nodiscard]] const ILight                     *GetLightAtHit(const HitRecord &hit) const override;
         [[nodiscard]] std::optional<HitRecord>          IntersectScene(const GfVec3f &rayOrigin,
                                                                        const GfVec3f &rayDir) const override;
