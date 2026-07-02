@@ -115,3 +115,36 @@ set_tests_properties(test_hdr_capture_mse_mis_area_lights PROPERTIES
     LABELS "normal"
     TIMEOUT ${HDRESTIR_SLOW_TEST_TIMEOUT_SECONDS}
 )
+# Point the test loader at the USD runtime libraries. USD is not necessarily
+# local: it may be the external/usd-install build, a system-wide install, or a
+# conda environment. Use whatever find_package(pxr) actually resolved (via
+# pxr_DIR), falling back to the local build, so the tests load the same USD the
+# targets linked against — matching the plugin RPATH logic in the root CMake.
+if(pxr_DIR AND EXISTS "${pxr_DIR}/lib")
+    set(_usd_prefix "${pxr_DIR}")
+elseif(EXISTS "${_usd_local}/lib")
+    set(_usd_prefix "${_usd_local}")
+elseif(DEFINED ENV{CONDA_PREFIX})
+    set(_usd_prefix "$ENV{CONDA_PREFIX}")
+else()
+    set(_usd_prefix "")
+endif()
+
+if(_usd_prefix)
+    if(WIN32)
+        set(_usd_runtime_dirs "${_usd_prefix}/lib" "${_usd_prefix}/bin")
+        set(_runtime_path_var "PATH")
+    elseif(APPLE)
+        set(_usd_runtime_dirs "${_usd_prefix}/lib")
+        set(_runtime_path_var "DYLD_LIBRARY_PATH")
+    else()
+        set(_usd_runtime_dirs "${_usd_prefix}/lib")
+        set(_runtime_path_var "LD_LIBRARY_PATH")
+    endif()
+    set(_env_mods "")
+    foreach(_d IN LISTS _usd_runtime_dirs)
+        list(APPEND _env_mods "${_runtime_path_var}=path_list_prepend:${_d}")
+    endforeach()
+    get_property(_hdrestir_tests DIRECTORY PROPERTY TESTS)
+    set_tests_properties(${_hdrestir_tests} PROPERTIES ENVIRONMENT_MODIFICATION "${_env_mods}")
+endif()

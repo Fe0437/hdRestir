@@ -17,7 +17,6 @@ build
 .vscode/
 .claude
 CLAUDE.md
-vcpkg
 __pycache__
 images/extra_scene_references/
 .DS_Store
@@ -27,3 +26,5 @@ exploratory_tests/**/*.log
 exploratory_tests/**/*.html
 build*
 performance_reference/**/*.json
+/external/OpenUSD/
+/external/usd-install/

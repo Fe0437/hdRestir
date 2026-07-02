@@ -20,7 +20,7 @@ Standard path tracers spend most of their budget evaluating light samples that c
 
 ---
 
-Built with CMake + vcpkg · C++20 · ✅ macOS · ⬜ Linux · ⬜ Windows
+Built with CMake · C++20 · ✅ macOS (tested @ `c4eaa21`) · ⬜ Linux · ✅ Windows (tested @ `c4eaa21`)
 
 ---
 
