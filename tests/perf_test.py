@@ -46,6 +46,15 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# This script prints Unicode symbols (≤, ✅, ❌, 🔬, ⚖️). On Windows a non-UTF-8
+# console (e.g. cp1252) raises UnicodeEncodeError as soon as output is piped or
+# redirected. Force UTF-8 so output is identical and crash-free on all platforms.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass  # already UTF-8, or a stream that can't be reconfigured
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Extra render settings forwarded to every render call.  Populated from
@@ -195,22 +204,6 @@ def _parse_logged_noise(capture_output: str) -> "dict | None":
         if lum > 0.0:
             info["rel_noise"] = math.sqrt(info["mean_estimator_variance"]) / lum
     return info
-
-
-def _compute_rmse(image_a: Path, image_b: Path) -> float:
-    """ImageMagick RMSE — used for reference image comparisons (HDR only)."""
-    result = subprocess.run(
-        ["magick", "compare", "-metric", "RMSE", str(image_a), str(image_b), "null:"],
-        capture_output=True, text=True,
-    )
-    if result.returncode not in {0, 1}:
-        sys.stderr.write(result.stderr)
-        raise subprocess.CalledProcessError(result.returncode, result.args)
-    output = (result.stderr or "") + (result.stdout or "")
-    match = re.search(r"\(([0-9eE+\-.]+)\)%?", output)
-    if not match:
-        raise RuntimeError(f"Could not parse RMSE output: {output!r}")
-    return float(match.group(1))
 
 
 def _base_settings(pipeline: str, sample_count: int, resolution_level: int = 1) -> dict:
@@ -929,7 +922,16 @@ def main():
     args = parser.parse_args()
 
     global _extra_render_settings
-    _extra_render_settings = dict(s.split("=", 1) for s in args.render_setting)
+    # Each --render-setting value may itself be a whitespace-separated list of
+    # KEY=VAL pairs (e.g. --render-setting "a=1 b=2"). This lets just recipes
+    # forward their `settings` argument as a single quoted token with no shell
+    # looping, so they work identically under cmd.exe, sh, or bash. An empty
+    # string contributes nothing.
+    _extra_render_settings = dict(
+        pair.split("=", 1)
+        for item in args.render_setting
+        for pair in item.split()
+    )
 
     if args.store and args.compare_pipeline:
         sys.exit("--store and --compare-pipeline are mutually exclusive.")
@@ -1089,7 +1091,7 @@ def main():
             # When the tested pipeline IS the compare pipeline (e.g.
             # `--pipelines RIS --compare-pipeline RIS` with different
             # --render-setting values), this is the only meaningful comparison,
-            # so it must not be skipped — previously this case printed nothing.
+            # so it must not be skipped.
             for pipeline in args.pipelines:
                 baseline = _load_for_compare(scene_path, pipeline, convergence_mode=True, args=args)
                 if baseline is not None:

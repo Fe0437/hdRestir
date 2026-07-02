@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.22)
 project(HdRestir LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -7,12 +7,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ----------------------------------------------------------------
 # Default build type — RelWithDebInfo, not Debug.
 #
-# The vcpkg OpenUSD packages ship Release-only dylibs. A pure Debug
-# build would fail to link because the matching debug USD dylibs do
-# not exist. RelWithDebInfo links against those Release dylibs while
-# still producing full debug symbols and enabling our own debug
-# assertions and logging (DEBUG_ENABLED below). Never change this
-# default to Debug without first building OpenUSD in debug mode.
+# OpenUSD is built in Release. A pure Debug build would fail to link
+# because the matching debug USD dylibs do not exist. RelWithDebInfo
+# links against those Release dylibs while still producing full debug
+# symbols and enabling our own debug assertions and logging
+# (DEBUG_ENABLED below). Never change this default to Debug without
+# first building OpenUSD in debug mode.
 # ----------------------------------------------------------------
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "RelWithDebInfo"
@@ -31,15 +31,45 @@ option(METRICS_ENABLED "Enable HdRestir runtime metrics (variance logging, count
 
 set(CMAKE_MACOSX_RPATH ON)
 
+# On Windows, <windows.h> (pulled in transitively by USD/Arch) defines min/max
+# macros that break std::min/std::max, so define NOMINMAX (and trim windows.h)
+# ourselves.
+if(WIN32)
+    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 include(CTest)
 
 # ----------------------------------------------------------------
 # Dependencies
 # ----------------------------------------------------------------
 
-find_package(pxr REQUIRED)
-find_package(TBB REQUIRED COMPONENTS tbb)
-find_package(Microsoft.GSL CONFIG REQUIRED)
+# OpenUSD — the install location is never assumed. workflow.py resolves it
+# (searching the environment) and pins it via $HDRESTIR_USD_INSTALL; we honour
+# that first. Otherwise we fall back to the local from-source build under
+# external/usd-install, and finally to whatever find_package(pxr) discovers via
+# CMAKE_PREFIX_PATH / a PATH-derived prefix. pxrConfig.cmake also defines the
+# TBB::tbb target USD links against, so we do NOT find TBB separately.
+set(_usd_local "${CMAKE_CURRENT_SOURCE_DIR}/external/usd-install")
+if(DEFINED ENV{HDRESTIR_USD_INSTALL} AND EXISTS "$ENV{HDRESTIR_USD_INSTALL}/pxrConfig.cmake")
+    list(PREPEND CMAKE_PREFIX_PATH "$ENV{HDRESTIR_USD_INSTALL}")
+elseif(EXISTS "${_usd_local}/pxrConfig.cmake")
+    list(PREPEND CMAKE_PREFIX_PATH "${_usd_local}")
+endif()
+# USD's imaging targets (garch/hdSt/…) reference OpenGL::GL in their link
+# interface, so find it explicitly.
+find_package(OpenGL REQUIRED)
+find_package(pxr CONFIG REQUIRED)
+
+# Microsoft GSL — header-only; fetched directly.
+include(FetchContent)
+FetchContent_Declare(Microsoft.GSL
+    GIT_REPOSITORY https://github.com/microsoft/GSL.git
+    GIT_TAG v4.0.0
+    GIT_SHALLOW TRUE)
+set(GSL_INSTALL OFF CACHE BOOL "" FORCE)
+set(GSL_TEST OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(Microsoft.GSL)
 
 find_package(OpenImageDenoise QUIET)
 if(OpenImageDenoise_FOUND)
@@ -87,7 +117,6 @@ target_compile_definitions(HdRestir PRIVATE
     $<$<NOT:$<BOOL:${METRICS_ENABLED}>>:METRICS_ENABLED=0>
 )
 
-# USD vcpkg exports without pxr:: namespace.
 # Collect source/ and every immediate subdirectory as include roots.
 set(_src_root "${CMAKE_CURRENT_SOURCE_DIR}/source")
 file(GLOB _source_subdirs LIST_DIRECTORIES true "${_src_root}/*")
@@ -123,14 +152,21 @@ if(OpenImageDenoise_FOUND)
 endif()
 
 # ----------------------------------------------------------------
-# RPATH — resolved at configure time, handles vcpkg and conda
+# RPATH — resolved at configure time from wherever USD was found
 # ----------------------------------------------------------------
 
-if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
-    set(_PLUGIN_RPATH "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib")
+# pxr_DIR is set by find_package(pxr CONFIG) to the dir holding pxrConfig.cmake
+# — i.e. the install prefix wherever it was found, whether that is the local
+# external/usd-install build, a system-wide install, or a conda environment —
+# so the RPATH tracks the USD we actually linked against, not a hard-coded
+# location.
+if(pxr_DIR AND EXISTS "${pxr_DIR}/lib")
+    set(_PLUGIN_RPATH "${pxr_DIR}/lib")
+elseif(EXISTS "${_usd_local}/lib")
+    set(_PLUGIN_RPATH "${_usd_local}/lib")
 elseif(DEFINED ENV{CONDA_PREFIX})
     set(_PLUGIN_RPATH "$ENV{CONDA_PREFIX}/lib")
-else()
+elseif(TARGET TBB::tbb)
     get_target_property(_tbb_loc TBB::tbb LOCATION)
     get_filename_component(_PLUGIN_RPATH "${_tbb_loc}" DIRECTORY)
 endif()

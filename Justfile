@@ -1,3 +1,11 @@
+# On Windows, `just` defaults to running recipes through `sh`, which usually
+# isn't on PATH in a normal terminal ("could not find the shell `sh`"). Fall
+# back to the native cmd.exe. This setting only affects Windows; Mac/Linux keep
+# their default sh. make.bat overrides this back to sh when sh is available.
+# All recipes are shell-agnostic (plain command lines / Python), so they behave
+# identically under cmd.exe, sh, or bash.
+set windows-shell := ["cmd.exe", "/c"]
+
 python := if os_family() == "windows" { "python" } else { "python3" }
 
 default:
@@ -9,17 +17,24 @@ build:
 debug:
     {{python}} workflow.py debug
 
+# Install ImageMagick if missing (needed by the HDR regression tests). Private
+# helper: recipes that run those tests depend on it, so the tool is pulled in
+# only when actually needed — no argument sniffing in the launchers.
+[private]
+_ensure-magick:
+    {{python}} tests/ensure_imagemagick.py
+
 test-smoke:
     ctest --test-dir build -V -L smoke
 
-test-all:
+test-all: _ensure-magick
     ctest --test-dir build -V
 
 debug-smoke:
     {{python}} workflow.py debug
     ctest --test-dir build -V -L smoke
 
-debug-test:
+debug-test: _ensure-magick
     {{python}} workflow.py debug
     ctest --test-dir build -V
 
@@ -59,16 +74,11 @@ capture-internal-reference output="reference/internal_scene_reference.hdr":
 
 # Store a convergence baseline. Args: pipeline, scene, variance (e.g. 0.01), samples, runs, settings ("k=v k=v")
 perf-store pipeline="" scene="" variance="" samples="64" runs="3" settings="":
-    #!/usr/bin/env bash
-    set -e
-    ARGS=(--store --runs {{runs}})
-    [ "{{pipeline}}" != "" ] && ARGS+=(--pipelines "{{pipeline}}")
-    if [ "{{scene}}" = "all" ]; then ARGS+=(--all-scenes)
-    elif [ "{{scene}}" != "" ]; then ARGS+=(--scene "{{scene}}"); fi
-    if [ "{{variance}}" != "" ]; then ARGS+=(--target-variance {{variance}})
-    else ARGS+=(--sample-count {{samples}}); fi
-    for s in {{settings}}; do ARGS+=(--render-setting "$s"); done
-    {{python}} tests/perf_test.py "${ARGS[@]}"
+    {{python}} tests/perf_test.py --store --runs {{runs}} \
+        {{ if pipeline != "" { "--pipelines " + pipeline } else { "" } }} \
+        {{ if scene == "all" { "--all-scenes" } else if scene != "" { "--scene " + scene } else { "" } }} \
+        {{ if variance != "" { "--target-variance " + variance } else { "--sample-count " + samples } }} \
+        --render-setting "{{settings}}"
 
 # Run perf test (strict). Args: pipeline, scene, compare-pipeline, variance, runs, settings ("k=v k=v")
 perf-test pipeline="" scene="" compare="" variance="" runs="3" settings="":
@@ -77,7 +87,7 @@ perf-test pipeline="" scene="" compare="" variance="" runs="3" settings="":
         {{ if scene == "all" { "--all-scenes" } else if scene != "" { "--scene " + scene } else { "" } }} \
         {{ if compare != "" { "--compare-pipeline " + compare } else { "" } }} \
         {{ if variance != "" { "--target-variance " + variance } else { "" } }} \
-        {{ if settings != "" { "--render-setting " + settings } else { "" } }}
+        --render-setting "{{settings}}"
 
 # Like perf-test but read-only (never fails). Args: pipeline, scene, compare, variance, runs, settings
 perf-log pipeline="" scene="" compare="" variance="" runs="3" settings="":
@@ -86,19 +96,15 @@ perf-log pipeline="" scene="" compare="" variance="" runs="3" settings="":
         {{ if scene == "all" { "--all-scenes" } else if scene != "" { "--scene " + scene } else { "" } }} \
         {{ if compare != "" { "--compare-pipeline " + compare } else { "" } }} \
         {{ if variance != "" { "--target-variance " + variance } else { "" } }} \
-        {{ if settings != "" { "--render-setting " + settings } else { "" } }}
+        --render-setting "{{settings}}"
 
 # Generate convergence graph (PNG in graphs/). Args: pipeline, scene, compare, variance, runs, settings, output
 perf-test-graph pipeline="" scene="" compare="" variance="0.01" runs="1" settings="" output="":
-    #!/usr/bin/env bash
-    set -e
-    ARGS=(--runs {{runs}} --graph-output "{{output}}" --target-variance {{variance}})
-    [ "{{pipeline}}" != "" ] && ARGS+=(--pipelines "{{pipeline}}")
-    if [ "{{scene}}" = "all" ]; then ARGS+=(--all-scenes)
-    elif [ "{{scene}}" != "" ]; then ARGS+=(--scene "{{scene}}"); fi
-    [ "{{compare}}" != "" ] && ARGS+=(--compare-pipeline "{{compare}}")
-    for s in {{settings}}; do ARGS+=(--render-setting "$s"); done
-    {{python}} tests/perf_test.py "${ARGS[@]}"
+    {{python}} tests/perf_test.py --runs {{runs}} --graph-output "{{output}}" --target-variance {{variance}} \
+        {{ if pipeline != "" { "--pipelines " + pipeline } else { "" } }} \
+        {{ if scene == "all" { "--all-scenes" } else if scene != "" { "--scene " + scene } else { "" } }} \
+        {{ if compare != "" { "--compare-pipeline " + compare } else { "" } }} \
+        --render-setting "{{settings}}"
 
 # Open the stored performance report in the browser
 perf-report:
@@ -124,41 +130,8 @@ perf-report:
 #     just test-and-perf PathTracer 0.01
 
 # Build, run all tests, ensure baselines, then check for regressions. Args: pipeline, variance
-test-and-perf pipeline="RIS" variance="0.005":
-    #!/usr/bin/env bash
-    set -e
-    PIPELINE="{{pipeline}}"
-    VARIANCE="{{variance}}"
-    if [ "$PIPELINE" = "PathTracer" ]; then
-        REFERENCE="RIS"
-    else
-        REFERENCE="PathTracer"
-    fi
-    echo ""
-    echo "════════════════════════════════════════════════════════════"
-    echo "  test-and-perf │ $PIPELINE  (convergence target ≤ $VARIANCE)"
-    echo "════════════════════════════════════════════════════════════"
-    echo ""
-    echo "▶ 1/4  Building..."
-    {{python}} workflow.py
-    echo ""
-    echo "▶ 2/4  Running all tests (smoke + normal)..."
-    ctest --test-dir build -V
-    echo ""
-    echo "▶ 3/4  Ensuring performance baselines exist..."
-    {{python}} tests/perf_test.py --ensure-store --pipelines "$REFERENCE" --target-variance "$VARIANCE"
-    {{python}} tests/perf_test.py --ensure-store --pipelines "$PIPELINE" --target-variance "$VARIANCE"
-    echo ""
-    echo "▶ 4/4  Performance: $PIPELINE vs stored $PIPELINE (regression) + vs $REFERENCE (quality)..."
-    {{python}} tests/perf_test.py --strict \
-        --pipelines "$PIPELINE" \
-        --compare-pipeline "$REFERENCE" \
-        --target-variance "$VARIANCE"
-    echo ""
-    echo "════════════════════════════════════════════════════════════"
-    echo "  ✅  test-and-perf: $PIPELINE — all checks passed"
-    echo "════════════════════════════════════════════════════════════"
-    echo ""
+test-and-perf pipeline="RIS" variance="0.005": _ensure-magick
+    {{python}} tests/test_and_perf.py {{pipeline}} {{variance}}
 
 # ─────────────────────────────────────────────────────────────────────────────
 

@@ -175,6 +175,12 @@ void HdRestirRenderBuffer::WriteSample(GfVec3i const &pixel, GfVec4f const &colo
 
 void HdRestirRenderBuffer::Resolve()
 {
+    // Runs on the main/Hydra thread every frame while render worker threads
+    // write _renderBuffer and (on framing changes) Allocate()/_Deallocate()
+    // resize it. Take _bufferMutex like every other accessor: without it the
+    // memcpy reads a buffer mid-write (visible as white spikes) or mid-realloc
+    // (a use-after-free / access-violation crash).
+    std::lock_guard<std::mutex> lock(_bufferMutex);
     // Copy from background render buffer to front display buffer
     if (_buffer.SizeBytes() == _renderBuffer.SizeBytes() && !_buffer.Empty())
     {
@@ -184,6 +190,7 @@ void HdRestirRenderBuffer::Resolve()
 
 void HdRestirRenderBuffer::ResolveBucket(unsigned int startX, unsigned int startY, unsigned int endX, unsigned int endY)
 {
+    std::lock_guard<std::mutex> lock(_bufferMutex);
     if (_buffer.Empty() || _buffer.SizeBytes() != _renderBuffer.SizeBytes())
         return;
 
