@@ -106,12 +106,28 @@ add_test(
         --reference ${HDRESTIR_MIS_AREA_LIGHTS_REFERENCE}
         --output ${CMAKE_CURRENT_BINARY_DIR}/reference_captures/mis_area_lights_current.hdr
         --threshold ${HDRESTIR_CAPTURE_MSE_THRESHOLD}
-        --render-setting targetSampleCount=${HDRESTIR_REFERENCE_TARGET_SAMPLE_COUNT}
-        --render-setting enableSplitScreen=0
-        --render-setting resolutionLevel=${HDRESTIR_REFERENCE_RESOLUTION_LEVEL}
-        --render-setting enableFireflyFilter=1
+        ${_HDRESTIR_REF_COMMON_SETTINGS}
 )
 set_tests_properties(test_hdr_capture_mse_mis_area_lights PROPERTIES
+    LABELS "normal"
+    TIMEOUT ${HDRESTIR_SLOW_TEST_TIMEOUT_SECONDS}
+)
+
+set(HDRESTIR_MATERIALX_SCENE "${PROJECT_SOURCE_DIR}/example_scenes/materialx_scene.usda")
+set(HDRESTIR_MATERIALX_REFERENCE "${PROJECT_SOURCE_DIR}/images/reference/materialx_scene_reference.hdr")
+
+add_test(
+    NAME test_hdr_capture_mse_materialx
+    COMMAND ${Python3_EXECUTABLE}
+        ${PROJECT_SOURCE_DIR}/tests/test_hdr_capture_mse.py
+        --workflow ${PROJECT_SOURCE_DIR}/workflow.py
+        --scene ${HDRESTIR_MATERIALX_SCENE}
+        --reference ${HDRESTIR_MATERIALX_REFERENCE}
+        --output ${CMAKE_CURRENT_BINARY_DIR}/reference_captures/materialx_scene_current.hdr
+        --threshold ${HDRESTIR_CAPTURE_MSE_THRESHOLD}
+        ${_HDRESTIR_REF_COMMON_SETTINGS}
+)
+set_tests_properties(test_hdr_capture_mse_materialx PROPERTIES
     LABELS "normal"
     TIMEOUT ${HDRESTIR_SLOW_TEST_TIMEOUT_SECONDS}
 )

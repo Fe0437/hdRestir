@@ -73,6 +73,25 @@ inline float GGXPdf(const GfVec3f &h, const GfVec3f &n, float alpha)
     return a2 / ((float)M_PI * denom * denom) * cosH;
 }
 
+// Smith-GGX masking-shadowing importance-sampling weight for a half-vector-sampled reflection:
+// bsdf*cosThetaL/pdf(wi) once D cancels out. Clamped to bound the grazing-angle spike.
+inline float GGXReflectionWeight(float nDotV, float nDotL, float vDotH, float nDotH, float alpha)
+{
+    constexpr float kMinCos    = 0.001f;
+    constexpr float kMaxWeight = 10.0f;
+    nDotV                      = std::max(kMinCos, nDotV);
+    nDotL                      = std::max(kMinCos, nDotL);
+    vDotH                      = std::max(kMinCos, vDotH);
+    nDotH                      = std::max(kMinCos, nDotH);
+    alpha                      = std::max(kMinCos, alpha);
+
+    const float alpha2{alpha * alpha};
+    const float g1V{2.0f * nDotV / (nDotV + std::sqrt(alpha2 + (1.0f - alpha2) * nDotV * nDotV))};
+    const float g1L{2.0f * nDotL / (nDotL + std::sqrt(alpha2 + (1.0f - alpha2) * nDotL * nDotL))};
+    const float weight{(g1V * g1L * vDotH) / (nDotV * nDotH)};
+    return std::min(weight, kMaxWeight);
+}
+
 inline float PowerHeuristic(float f, float g)
 {
     float f2 = f * f;

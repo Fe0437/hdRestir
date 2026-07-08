@@ -105,8 +105,8 @@ namespace Restir
         }
 
         const GfVec3f wo{-isect.ray.Dir};
-        const GfVec3f bsdfValue{surface.bsdf.Eval(shadingNormal, wo, lightSample.Dir)};
         const float   bsdfPdf{surface.bsdf.Pdf(shadingNormal, wo, lightSample.Dir)};
+        const GfVec3f bsdfValue{surface.bsdf.Eval(shadingNormal, wo, lightSample.Dir)};
 
         const SampledSpectrum radiance{RGBToSpectrum(bsdfValue, surface.lambda) *
                                        RGBToSpectrum(lightSample.Color, surface.lambda) * (nDotL / pNee)};

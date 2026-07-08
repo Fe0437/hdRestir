@@ -33,6 +33,15 @@ Examples
 
   # Convergence-matching, RIS vs PathTracer, one scene:
   python tests/perf_test.py --compare-pipeline PathTracer --target-variance 0.0005
+
+  # A/B a render setting on the same pipeline (e.g. does skipping visibility
+  # actually converge faster?), with a graph:
+  python tests/perf_test.py --pipelines RIS --compare-render-setting risSkipVisibility=1 \\
+      --target-variance 0.0005 --graph-output
+
+  # Combine both: RIS vs PathTracer, where PathTracer also gets the override:
+  python tests/perf_test.py --pipelines RIS --compare-pipeline PathTracer \\
+      --compare-render-setting risSkipVisibility=1 --target-variance 0.0005
 """
 
 import argparse
@@ -780,6 +789,21 @@ def _report_convergence_vs_reference(scene_path, pipeline, current, reference) -
 
 # ── convergence graph ─────────────────────────────────────────────────────────
 
+def _display_value(value: str) -> str:
+    """Normalize a render-setting value for display (titles/legends/filenames) only.
+
+    --render-setting/--compare-render-setting pass raw strings straight to the
+    renderer, which already treats "1"/"true" interchangeably as truthy — but a
+    graph comparing risSkipVisibility=1 against the other side's default "false"
+    should read "false vs true", not the misleadingly literal "false vs 1"."""
+    lowered = value.lower()
+    if lowered in ("1", "true"):
+        return "true"
+    if lowered in ("0", "false"):
+        return "false"
+    return value
+
+
 def _plot_convergence_graph(series: list, target_noise: "float | None", output_path: Path):
     """Save a convergence-speed PNG: x = cumulative render time, y = noise."""
     try:
@@ -823,7 +847,7 @@ def _plot_convergence_graph(series: list, target_noise: "float | None", output_p
                        if len({d.get(k) for d in all_settings}) > 1)
     if differing:
         subtitle = "  |  ".join(
-            f"{k}: {' vs '.join(str(d.get(k, '?')) for d in all_settings)}"
+            f"{k}: {' vs '.join(_display_value(str(d.get(k, '?'))) for d in all_settings)}"
             for k in differing
         )
     else:
@@ -832,6 +856,18 @@ def _plot_convergence_graph(series: list, target_noise: "float | None", output_p
     ax.set_xlabel("Cumulative render time  (s)", fontsize=11)
     ax.set_ylabel("Noise  (lower = more converged)", fontsize=11)
     ax.set_yscale("log")
+
+    # Fit the y-axis to the actual data, not to the convergence target: the target is often
+    # set far below where the curves actually sit (e.g. an intentionally unreachable value used
+    # to force a full time-budget sweep), and letting it stretch the axis compresses the curves
+    # into a sliver at the top, hiding exactly the differences this graph exists to show. Set
+    # this after set_yscale("log") so it applies to the final log axis, and only from strictly
+    # positive values — a fully-converged curve can legitimately hit noise_rmse == 0.0, which is
+    # not a valid bound on a log axis and would otherwise silently fall back to autoscale.
+    positive_y = [pt["noise_rmse"] for s in series for pt in s.get("curve", []) if pt["noise_rmse"] > 0.0]
+    if positive_y:
+        ax.set_ylim(min(positive_y) / 1.5, max(positive_y) * 1.5)
+
     if subtitle:
         ax.set_title(f"Convergence Speed\n{subtitle}", fontsize=11, fontweight="bold")
     else:
@@ -914,6 +950,12 @@ def main():
                         dest="render_setting", default=[],
                         help="Extra render setting forwarded to every render (repeatable). "
                              "Example: --render-setting risUseReservoir=0")
+    parser.add_argument("--compare-render-setting", action="append", metavar="KEY=VAL",
+                        dest="compare_render_setting", default=[],
+                        help="Render setting applied only to the comparison side (repeatable). "
+                             "Comparison target is --compare-pipeline if given, else the same "
+                             "pipeline (A/B settings compare). Requires --target-variance. "
+                             "Example: --compare-render-setting risSkipVisibility=1")
     parser.add_argument("--graph-output", metavar="PATH", nargs="?", const="",
                         help="Save a convergence graph image (PNG/SVG). "
                              "Omit PATH to auto-name from the differing settings. "
@@ -932,6 +974,18 @@ def main():
         for item in args.render_setting
         for pair in item.split()
     )
+    # Whether this is truthy changes behavior at three points further down, since a
+    # settings-override comparison always renders its target live instead of reusing
+    # the pre-pipeline-loop store lookup or the generic post-loop graph collection that
+    # a plain --compare-pipeline run uses:
+    #   1. the pre-render store-lookup guard (skip: always live-render the compare side)
+    #   2. the per-pipeline reporting loop (never skip self-compare: A/B needs it)
+    #   3. the generic graph-series block (skip: the branch below builds its own series)
+    compare_render_settings = dict(
+        pair.split("=", 1)
+        for item in args.compare_render_setting
+        for pair in item.split()
+    )
 
     if args.store and args.compare_pipeline:
         sys.exit("--store and --compare-pipeline are mutually exclusive.")
@@ -939,6 +993,10 @@ def main():
         sys.exit("--ensure-store is mutually exclusive with --store and --compare-pipeline.")
     if args.ensure_store and not args.target_variance:
         sys.exit("--ensure-store requires --target-variance.")
+    if compare_render_settings and not args.target_variance:
+        sys.exit("--compare-render-setting requires --target-variance.")
+    if compare_render_settings and (args.store or args.ensure_store):
+        sys.exit("--compare-render-setting is mutually exclusive with --store/--ensure-store.")
 
     reference_image = Path(args.reference_image).resolve() if args.reference_image else None
     if reference_image and not reference_image.is_file():
@@ -967,11 +1025,16 @@ def main():
         tested = ', '.join(args.pipelines)
         print(f"Mode       : 📦 ensure-store — [{tested}] | create baseline only if missing")
         print(f"             target noise_rmse ≤ {args.target_variance}")
-    elif convergence_mode and args.compare_pipeline:
+    elif convergence_mode and (args.compare_pipeline or compare_render_settings):
         tested = ', '.join(args.pipelines)
         ref_note = reference_image.name if reference_image else "not available — rmse_vs_ref skipped"
+        cmp_note = args.compare_pipeline or "itself"
+        override_note = (f" +{' '.join(f'{k}={v}' for k, v in compare_render_settings.items())}"
+                          if compare_render_settings else "")
         print(f"Mode       : 🔬 convergence — doubling samples until noise ≤ {args.target_variance}")
-        print(f"             Testing [{tested}]; comparing vs stored {args.compare_pipeline} baseline")
+        print(f"             Testing [{tested}]; comparing vs {cmp_note}{override_note} (live, not stored)"
+              if compare_render_settings else
+              f"             Testing [{tested}]; comparing vs stored {args.compare_pipeline} baseline")
         print(f"Metrics    : noise[log]=sqrt(est.variance)/mean lum (fallback noise[image]=RMSE(N,N/4), floor ~0.004)")
         print(f"             + rmse_vs_ref=RMSE(N,reference) [quality/bias check]")
         print(f"Reference  : {ref_note}")
@@ -1042,7 +1105,8 @@ def main():
         pipelines_to_render = list(args.pipelines)
         measured: dict = {}
 
-        if args.compare_pipeline and args.compare_pipeline not in pipelines_to_render:
+        if (args.compare_pipeline and args.compare_pipeline not in pipelines_to_render
+                and not compare_render_settings):
             stored = _load_for_compare(scene_path, args.compare_pipeline, convergence_mode, args)
             if stored is not None:
                 measured[args.compare_pipeline] = stored
@@ -1086,7 +1150,9 @@ def main():
                     result = {**result, "mode": "fixed", "render_settings": _extra_render_settings}
                 _store_reference(scene_path, pipeline, result)
 
-        elif convergence_mode and args.compare_pipeline:
+        elif convergence_mode and (args.compare_pipeline or compare_render_settings):
+            override_str = " ".join(f"{k}={v}" for k, v in compare_render_settings.items())
+
             # Self-regression: each tested pipeline vs its own stored baseline.
             # When the tested pipeline IS the compare pipeline (e.g.
             # `--pipelines RIS --compare-pipeline RIS` with different
@@ -1111,14 +1177,76 @@ def main():
                     print(f"  └─  ℹ️  No compatible baseline — run"
                           f" 'just perf-store {pipeline} \"\" {args.target_variance}' to save one.")
 
-            # Cross-pipeline quality comparison
-            ref_result = measured[args.compare_pipeline]
+            # Cross comparison: each tested pipeline vs its compare target — a different
+            # named pipeline (--compare-pipeline), the same pipeline with a settings
+            # override (--compare-render-setting, self-compare when --compare-pipeline is
+            # omitted), or both combined. The target is cached per (name, override) pair:
+            # it's shared across every tested pipeline unless self-compare makes it vary
+            # per iteration (cmp_pipeline == pipeline changes each time).
+            compare_cache: dict = {}
+            graphed_compare_keys: set = set()
+
+            def _get_compare_result(cmp_pipeline):
+                global _extra_render_settings
+                cache_key = (cmp_pipeline, tuple(sorted(compare_render_settings.items())))
+                if cache_key in compare_cache:
+                    return compare_cache[cache_key]
+                if not compare_render_settings:
+                    result = measured[cmp_pipeline]
+                else:
+                    print(f"\n[{scene_path.stem} / {cmp_pipeline}] +{override_str} — "
+                          f"searching for convergence...")
+                    saved_settings = _extra_render_settings
+                    _extra_render_settings = {**_extra_render_settings, **compare_render_settings}
+                    try:
+                        result = _find_convergence(
+                            workflow_path, scene_path, cmp_pipeline, args.target_variance,
+                            args.min_samples, args.max_samples, args.max_time, tmp_dir,
+                            resolution_level=args.resolution_level, reference_image=reference_image,
+                            runs=args.runs,
+                        )
+                    finally:
+                        _extra_render_settings = saved_settings
+                compare_cache[cache_key] = result
+                return result
+
             for pipeline in args.pipelines:
-                if pipeline != args.compare_pipeline:
-                    _report_convergence_cross(
-                        scene_path, pipeline, args.compare_pipeline,
-                        measured[pipeline], ref_result, args.target_variance,
-                    )
+                cmp_pipeline = args.compare_pipeline or pipeline
+                if cmp_pipeline == pipeline and not compare_render_settings:
+                    continue  # no settings override and no distinct pipeline — nothing new to compare
+                cmp_result = _get_compare_result(cmp_pipeline)
+                cmp_label  = f"{cmp_pipeline} (+{override_str})" if compare_render_settings else cmp_pipeline
+                _report_convergence_cross(scene_path, pipeline, cmp_label,
+                                          measured[pipeline], cmp_result, args.target_variance)
+
+                # Settings-override comparisons build their own graph series here (with
+                # explicit backfilled defaults for a clear legend); plain --compare-pipeline
+                # runs are still handled by the generic graph-series block below.
+                if args.graph_output is not None and compare_render_settings:
+                    base_display = dict(_extra_render_settings)
+                    for key in compare_render_settings:
+                        base_display.setdefault(key, "false")
+                    cmp_display = {**base_display, **compare_render_settings}
+                    base_str = " ".join(f"{k}={v}" for k, v in base_display.items())
+                    cmp_str  = " ".join(f"{k}={v}" for k, v in cmp_display.items())
+                    graph_series.append({
+                        "label": f"{pipeline}  [{base_str}]" if base_str else pipeline,
+                        "curve": measured[pipeline].get("curve", []),
+                        "from_store": False,
+                        "settings_raw": base_display,
+                    })
+                    # The compare-target curve is shared across every tested pipeline when
+                    # --compare-pipeline names a fixed pipeline (cmp_pipeline doesn't vary
+                    # with `pipeline`) — append it once, not once per tested pipeline.
+                    cache_key = (cmp_pipeline, tuple(sorted(compare_render_settings.items())))
+                    if cache_key not in graphed_compare_keys:
+                        graphed_compare_keys.add(cache_key)
+                        graph_series.append({
+                            "label": f"{cmp_label}  [{cmp_str}]" if cmp_str else cmp_label,
+                            "curve": cmp_result.get("curve", []),
+                            "from_store": cmp_result.get("from_store", False),
+                            "settings_raw": cmp_display,
+                        })
 
         elif convergence_mode:
             for pipeline in args.pipelines:
@@ -1166,7 +1294,11 @@ def main():
                         any_regression = True
 
         # ── graph series collection ──────────────────────────────────────────
-        if convergence_mode and args.graph_output is not None:
+        # Skipped when compare_render_settings is active: that branch above already
+        # appended both the base and compare-target series itself (with backfilled
+        # default values in settings_raw for a clear legend), so appending again here
+        # would duplicate every series on the graph.
+        if convergence_mode and args.graph_output is not None and not compare_render_settings:
             for pipeline in args.pipelines:
                 if pipeline not in measured:
                     continue
@@ -1202,10 +1334,12 @@ def main():
         if args.graph_output:
             out_path = Path(args.graph_output)
         else:
+            scene_label = ("_".join(s.stem for s in scenes) if len(scenes) <= 3
+                           else f"{len(scenes)}scenes")
             tested = "_".join(args.pipelines) if args.pipelines else "all"
             compare = args.compare_pipeline or ""
             compare_label = f"_vs_{compare}" if (compare and compare not in (args.pipelines or [])) else ""
-            pipeline_label = f"{tested}{compare_label}"
+            pipeline_label = f"{scene_label}_{tested}{compare_label}"
 
             all_settings = [s.get("settings_raw", {}) for s in graph_series]
             all_keys = {k for d in all_settings for k in d}
@@ -1213,7 +1347,7 @@ def main():
                                if len({d.get(k) for d in all_settings}) > 1)
             if differing:
                 parts = "_".join(
-                    f"{k}_{'vs'.join(str(d.get(k, '?')) for d in all_settings)}"
+                    f"{k}_{'vs'.join(_display_value(str(d.get(k, '?'))) for d in all_settings)}"
                     for k in differing
                 )
                 out_path = Path(f"graphs/convergence_{pipeline_label}_{parts}.png")

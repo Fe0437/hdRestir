@@ -1,0 +1,73 @@
+#usda 1.0
+(
+    defaultPrim = "world"
+    upAxis = "Y"
+)
+
+def Scope "world"
+{
+    def Scope "Looks"
+    {
+        def Material "Ground"
+        {
+            token outputs:surface.connect = </world/Looks/Ground/PreviewSurface.outputs:surface>
+
+            def Shader "PreviewSurface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.55, 0.55, 0.58)
+                float inputs:roughness = 0.92
+                float inputs:metallic = 0
+                token outputs:surface
+            }
+        }
+
+        def Scope "MaterialX" (
+            prepend references = @./materialx_scene_mat.mtlx@</MaterialX/Materials>
+        )
+        {
+        }
+    }
+
+    def Mesh "plane" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        point3f[] points = [(-5, 0, -5), (5, 0, -5), (5, 0, 5), (-5, 0, 5)]
+        uniform token subdivisionScheme = "none"
+        rel material:binding = </world/Looks/Ground>
+    }
+
+    def Sphere "redSphere" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        double radius = 1.8
+        rel material:binding = </world/Looks/MaterialX/M_RedPlastic>
+        float3 xformOp:translate = (-2.6, 1.8, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def Sphere "blueSphere" (
+        prepend apiSchemas = ["MaterialBindingAPI"]
+    )
+    {
+        double radius = 1.4
+        rel material:binding = </world/Looks/MaterialX/M_BlueMetal>
+        float3 xformOp:translate = (2.6, 1.4, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+
+    def RectLight "keyLight"
+    {
+        float intensity = 36000
+        color3f color = (1, 0.95, 0.9)
+        float width = 6
+        float height = 4.5
+        float3 xformOp:translate = (-4, 11, 8)
+        float3 xformOp:rotateXYZ = (-58, -24, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ"]
+    }
+}

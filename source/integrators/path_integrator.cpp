@@ -152,7 +152,7 @@ namespace Restir
 
             if (bounce > 3)
             {
-                const float p{throughput.Max()};
+                const float p{std::clamp(throughput.Max() * _settings.RouletteAggressiveness, 0.0f, 1.0f)};
                 if (rng.NextFloat() > p)
                 {
                     break;

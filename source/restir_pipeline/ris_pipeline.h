@@ -17,6 +17,7 @@ namespace Restir
         PathTracerPipelineSettings PathTracer{};
         int                        CandidateCount{16};
         bool                       UseReservoir{true};
+        bool                       SkipVisibility{false};
     };
 
     [[nodiscard]] inline std::unique_ptr<RenderPipeline> MakeRISPipeline(std::string              &&name     = "RIS",
@@ -24,9 +25,9 @@ namespace Restir
     {
         std::vector<Detail::PipelinePassSpec> passSpecs{};
         passSpecs.push_back(Detail::MakePassSpec<RaycastPass>(settings.PathTracer.OutputNames));
-        passSpecs.push_back(Detail::MakePassSpec<RISPathTracePass>(settings.CandidateCount, settings.UseReservoir,
-                                                                   settings.PathTracer.PathTrace,
-                                                                   settings.PathTracer.MaxDepth));
+        passSpecs.push_back(Detail::MakePassSpec<RISPathTracePass>(
+            settings.CandidateCount, settings.UseReservoir, settings.SkipVisibility, settings.PathTracer.PathTrace,
+            settings.PathTracer.MaxDepth));
         passSpecs.push_back(Detail::MakePassSpec<AccumulationPass>(settings.PathTracer.Denoiser.EnableFireflyFilter));
         if (settings.PathTracer.ResolutionLevel > 0)
         {

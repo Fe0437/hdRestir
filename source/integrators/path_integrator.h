@@ -11,10 +11,11 @@ namespace Restir
 
     struct PathTracePassSettings
     {
-        bool EnableSubsurface{true};
-        int  MaxReflectionBounces{8};
-        int  MaxRefractionBounces{8};
-        bool RenderIblBackground{true};
+        bool  EnableSubsurface{true};
+        int   MaxReflectionBounces{8};
+        int   MaxRefractionBounces{8};
+        bool  RenderIblBackground{true};
+        float RouletteAggressiveness{1.0f};
     };
 
     class PathIntegrator final : public IIntegrator

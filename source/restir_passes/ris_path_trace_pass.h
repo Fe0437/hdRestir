@@ -12,10 +12,11 @@ namespace Restir
     class RISPathTracePass final : public IntegrationPass
     {
       public:
-        explicit RISPathTracePass(int candidateCount = 16, bool useReservoir = true,
+        explicit RISPathTracePass(int candidateCount = 16, bool useReservoir = true, bool skipVisibility = false,
                                   PathTracePassSettings settings = {}, int maxDepth = 32)
             : RISPathTracePass{std::make_unique<PathIntegrator>(
-                  RisDirectLightIntegrator::MakeFactory(candidateCount, useReservoir), settings, maxDepth)}
+                  RisDirectLightIntegrator::MakeFactory(candidateCount, useReservoir, skipVisibility), settings,
+                  maxDepth)}
         {
         }
 

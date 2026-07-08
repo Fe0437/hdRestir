@@ -38,7 +38,7 @@ namespace Restir
         {
             const auto &v{s.Values};
             return PathTracerPipelineSettings{
-                .MaxDepth        = 32,
+                .MaxDepth        = Get<int>(v, HdRestirRenderSettingsTokens->maxDepth, 32),
                 .ResolutionLevel = Get<int>(v, HdRestirRenderSettingsTokens->resolutionLevel, 0),
                 .OutputNames     = s.OutputNames,
                 .PathTrace =
@@ -47,6 +47,8 @@ namespace Restir
                         .MaxReflectionBounces = Get<int>(v, HdRestirRenderSettingsTokens->maxReflectionBounces, 0),
                         .MaxRefractionBounces = Get<int>(v, HdRestirRenderSettingsTokens->maxRefractionBounces, 0),
                         .RenderIblBackground  = Get<bool>(v, HdRestirRenderSettingsTokens->renderIblBackground, false),
+                        .RouletteAggressiveness =
+                            Get<float>(v, HdRestirRenderSettingsTokens->rouletteAggressiveness, 1.0f),
                     },
                 .Denoiser =
                     Denoiser::Config{
@@ -75,6 +77,7 @@ namespace Restir
                 .PathTracer     = MakePathTracerSettings(s),
                 .CandidateCount = Get<int>(s.Values, HdRestirRenderSettingsTokens->risCandidateCount, 16),
                 .UseReservoir   = Get<bool>(s.Values, HdRestirRenderSettingsTokens->risUseReservoir, true),
+                .SkipVisibility = Get<bool>(s.Values, HdRestirRenderSettingsTokens->risSkipVisibility, false),
             };
         }
 

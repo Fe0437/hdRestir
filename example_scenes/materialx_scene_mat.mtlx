@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<materialx version="1.38" colorspace="lin_rec709">
+  <!-- Minimal, self-contained MaterialX standard_surface materials (no image textures)
+       used to smoke-test usdMtlx / MaterialX shading end-to-end: USD must be built with
+       MaterialX support (build_usd.py without --no-materialx) for the .mtlx file format
+       to be registered at all, and HdRestir's material translation already understands
+       ND_standard_surface_surfaceshader (see source/hydra/hd_restir_material.cpp). -->
+  <standard_surface name="RedPlastic" type="surfaceshader">
+    <input name="base" type="float" value="1.0" />
+    <input name="base_color" type="color3" value="0.82, 0.24, 0.18" />
+    <input name="specular_roughness" type="float" value="0.35" />
+    <input name="metalness" type="float" value="0.0" />
+  </standard_surface>
+  <surfacematerial name="M_RedPlastic" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="RedPlastic" />
+  </surfacematerial>
+
+  <standard_surface name="BlueMetal" type="surfaceshader">
+    <input name="base" type="float" value="1.0" />
+    <input name="base_color" type="color3" value="0.22, 0.40, 0.78" />
+    <input name="specular_roughness" type="float" value="0.18" />
+    <input name="metalness" type="float" value="1.0" />
+  </standard_surface>
+  <surfacematerial name="M_BlueMetal" type="material">
+    <input name="surfaceshader" type="surfaceshader" nodename="BlueMetal" />
+  </surfacematerial>
+</materialx>

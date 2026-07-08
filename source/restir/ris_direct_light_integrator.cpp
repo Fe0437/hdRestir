@@ -25,8 +25,8 @@ namespace Restir
         class RisDirectLightIntegratorFactory final : public IDirectLightIntegratorFactory, public IBufferStager
         {
           public:
-            explicit RisDirectLightIntegratorFactory(int candidateCount, bool useReservoir)
-                : _candidateCount{candidateCount}, _useReservoir{useReservoir}
+            explicit RisDirectLightIntegratorFactory(int candidateCount, bool useReservoir, bool skipVisibility)
+                : _candidateCount{candidateCount}, _useReservoir{useReservoir}, _skipVisibility{skipVisibility}
             {
             }
 
@@ -35,7 +35,7 @@ namespace Restir
             {
                 return NotNullUniquePtr<IDirectLightIntegrator>{std::make_unique<RisDirectLightIntegrator>(
                     NotNullUniquePtr<ILightSampler>{std::make_unique<UniformLightSampler>(scene.GetLights())},
-                    _candidateCount, _useReservoir)};
+                    _candidateCount, _useReservoir, _skipVisibility)};
             }
 
             [[nodiscard]] IBufferStager *GetBufferStager() override
@@ -55,15 +55,16 @@ namespace Restir
           private:
             int  _candidateCount;
             bool _useReservoir;
+            bool _skipVisibility;
         };
 
     } // namespace
 
-    NotNullUniquePtr<IDirectLightIntegratorFactory> RisDirectLightIntegrator::MakeFactory(int  candidateCount,
-                                                                                          bool useReservoir)
+    NotNullUniquePtr<IDirectLightIntegratorFactory>
+    RisDirectLightIntegrator::MakeFactory(int candidateCount, bool useReservoir, bool skipVisibility)
     {
         return NotNullUniquePtr<IDirectLightIntegratorFactory>{
-            std::make_unique<RisDirectLightIntegratorFactory>(candidateCount, useReservoir)};
+            std::make_unique<RisDirectLightIntegratorFactory>(candidateCount, useReservoir, skipVisibility)};
     }
 
     SampledSpectrum RisDirectLightIntegrator::Li(const RayIntersection &isect, const IScene &scene, Rng &rng,
@@ -82,7 +83,7 @@ namespace Restir
         const int        nNeeSampler{std::max(1, _candidateCount / nTech)};
         const int        nNeeSky{envLight != nullptr && skyLightSelectPdf <= 0.0f ? _candidateCount / nTech : 0};
         const int        nBsdf{std::max(0, _candidateCount - nNeeSampler - nNeeSky)};
-        SamplingStrategy samplingStrategy{*_sampler, nNeeSampler, nNeeSky, nBsdf};
+        SamplingStrategy samplingStrategy{*_sampler, nNeeSampler, nNeeSky, nBsdf, _skipVisibility};
 
         auto       allCandidates{_generateNEECandidates(isect, scene, rng, samplingStrategy)};
         const auto bsdfSamples{_generateBSDFSamplingCandidates(isect, scene, rng, bsdfConnection, samplingStrategy)};
@@ -131,7 +132,22 @@ namespace Restir
                 }
             }
 
-            const ReservoirT finalized{reservoir.Release()};
+            ReservoirT finalized{reservoir.Release()};
+
+            // The winner's shadow ray may have been skipped for cheap selection
+            // (VisibilityTested=false); test it for real now, once, before it's stored — so
+            // if this same sample is reused next frame, it's already trusted and correct.
+            if (finalized.ChosenSample.has_value() && !finalized.ChosenSample->VisibilityTested &&
+                finalized.ChosenSample->Candidate.has_value())
+            {
+                RISLightCandidate    &winner{*finalized.ChosenSample};
+                const LightCandidate &lc{*winner.Candidate};
+                const MISContrib      nee{_evaluateLightSample(isect, *lc.Light, lc.Ls, scene,
+                                                               /*skipVisibility=*/false)};
+                winner.Throughput       = nee.Emission * nee.ThroughputMul;
+                winner.VisibilityTested = true;
+            }
+
             reservoirBuf.As<ReservoirT>()[callId.id] = finalized;
 
             if (!finalized.ChosenSample.has_value() || finalized.W <= 0.0f)
@@ -157,8 +173,19 @@ namespace Restir
 
         const RISLightCandidate &chosenCandidate{chosenCandidateOptional.value()};
         DBG_ASSERT(chosenCandidate.targetFunction > 0.0, "RIS chosen candidate must have positive target function");
-        const float W{static_cast<float>(chosen->WeightSum / chosenCandidate.targetFunction)};
-        return chosenCandidate.Throughput * W;
+        const float     W{static_cast<float>(chosen->WeightSum / chosenCandidate.targetFunction)};
+        SampledSpectrum winnerThroughput{chosenCandidate.Throughput};
+
+        // Same idea as the reservoir branch above: test the winner's visibility now if it
+        // was skipped during selection (VisibilityTested=false).
+        if (!chosenCandidate.VisibilityTested && chosenCandidate.Candidate.has_value())
+        {
+            const LightCandidate &lc{*chosenCandidate.Candidate};
+            const MISContrib      nee{_evaluateLightSample(isect, *lc.Light, lc.Ls, scene, /*skipVisibility=*/false)};
+            winnerThroughput = nee.Emission * nee.ThroughputMul;
+        }
+
+        return winnerThroughput * W;
     }
 
     SampledSpectrum RisDirectLightIntegrator::Li(const RayIntersection &isect, const IScene &scene, Rng &rng,
@@ -370,7 +397,8 @@ namespace Restir
                 continue;
             }
 
-            const MISContrib      nee{_evaluateLightSample(isect, *candidate->Light, candidate->Ls, scene)};
+            const MISContrib nee{
+                _evaluateLightSample(isect, *candidate->Light, candidate->Ls, scene, samplingStrategy.skipVisibility)};
             const SampledSpectrum contribution{nee.Emission * nee.ThroughputMul};
             const float           targetFunction{SpectrumLuminance(contribution, surface.lambda)};
             const float  misWeight{nee.UseMis
@@ -379,11 +407,12 @@ namespace Restir
                                        : 1.0f};
             const double risWeight{misWeight * targetFunction / (nee.PNee + 1e-9)};
             candidates.push_back(RisDirectLightIntegrator::RISLightCandidate{
-                .Candidate      = *candidate,
-                .Origin         = CandidateOrigin::NEE,
-                .Throughput     = contribution,
-                .risWeight      = risWeight,
-                .targetFunction = targetFunction,
+                .Candidate        = *candidate,
+                .Origin           = CandidateOrigin::NEE,
+                .Throughput       = contribution,
+                .risWeight        = risWeight,
+                .targetFunction   = targetFunction,
+                .VisibilityTested = nee.VisibilityTested,
             });
         }
 
@@ -400,7 +429,8 @@ namespace Restir
                         candidates.push_back(std::nullopt);
                         continue;
                     }
-                    const MISContrib      nee{_evaluateLightSample(isect, *envLight, *lightSample, scene)};
+                    const MISContrib nee{
+                        _evaluateLightSample(isect, *envLight, *lightSample, scene, samplingStrategy.skipVisibility)};
                     const SampledSpectrum contribution{nee.Emission * nee.ThroughputMul};
                     const float           targetFunction{SpectrumLuminance(contribution, surface.lambda)};
                     const float  misWeight{nee.UseMis ? PowerHeuristic(nee.PNee, samplingStrategy.nNeeSky, 0.0f,
@@ -409,11 +439,12 @@ namespace Restir
                                                       : 1.0f};
                     const double risWeight{misWeight * targetFunction / (nee.PNee + 1e-9)};
                     candidates.push_back(RisDirectLightIntegrator::RISLightCandidate{
-                        .Candidate      = LightCandidate{envLight, *lightSample, {}},
-                        .Origin         = CandidateOrigin::SkyNEE,
-                        .Throughput     = contribution,
-                        .risWeight      = risWeight,
-                        .targetFunction = targetFunction,
+                        .Candidate        = LightCandidate{envLight, *lightSample, {}},
+                        .Origin           = CandidateOrigin::SkyNEE,
+                        .Throughput       = contribution,
+                        .risWeight        = risWeight,
+                        .targetFunction   = targetFunction,
+                        .VisibilityTested = nee.VisibilityTested,
                     });
                 }
             }
@@ -422,10 +453,9 @@ namespace Restir
         return candidates;
     }
 
-    RisDirectLightIntegrator::MISContrib RisDirectLightIntegrator::_evaluateLightSample(const RayIntersection &isect,
-                                                                                        const ILight          &light,
-                                                                                        const LightSample     &ls,
-                                                                                        const IScene          &scene)
+    RisDirectLightIntegrator::MISContrib
+    RisDirectLightIntegrator::_evaluateLightSample(const RayIntersection &isect, const ILight &light,
+                                                   const LightSample &ls, const IScene &scene, bool skipVisibility)
     {
         const ShadingPoint &surface{*isect.shadingPoint};
         const GfVec3f       wo{-isect.ray.Dir};
@@ -434,12 +464,25 @@ namespace Restir
         const float   dist2{ls.Dist * ls.Dist};
         const float   cosY{std::max(0.0f, GfDot(-ls.Dir, ls.LightNormal))};
         const float   pNee{ls.Pdf.ConvertTo(PdfSpace::SolidAngle, dist2, std::max(cosY, 1e-6f)).value};
-        const GfVec3f bsdfValue{surface.bsdf.Eval(surface.shadingNormal, wo, ls.Dir)};
         const float   pBsdf{surface.bsdf.Pdf(surface.shadingNormal, wo, ls.Dir)};
+        const GfVec3f bsdfValue{surface.bsdf.Eval(surface.shadingNormal, wo, ls.Dir)};
         const bool    useMis{!light.IsDeltaLight()};
 
         if (nDotL <= 0.0f || pNee <= 0.0f || (cosY <= 0.0f && !light.IsDeltaLight()))
             return MISContrib{.PNee = pNee, .PBsdf = pBsdf, .UseMis = useMis};
+
+        // skipVisibility: the target function (used only for candidate *selection*) is
+        // evaluated as if the sample were always unoccluded — no shadow ray fired here.
+        // Cheaper (one less scene intersection per candidate), and still unbiased overall:
+        // VisibilityTested=false flags this up so whichever candidate wins gets a real shadow
+        // ray back in Li(), before its contribution is used in the final estimator.
+        if (skipVisibility)
+            return MISContrib{.Emission         = RGBToSpectrum(ls.Color, surface.lambda),
+                              .ThroughputMul    = RGBToSpectrum(bsdfValue * nDotL, surface.lambda),
+                              .PNee             = pNee,
+                              .PBsdf            = pBsdf,
+                              .UseMis           = useMis,
+                              .VisibilityTested = false};
 
         const GfVec3f shadowOrigin{isect.hit->Position + surface.shadingNormal * 1e-4f};
         const auto    shadowHit{scene.IntersectScene(shadowOrigin, ls.Dir)};

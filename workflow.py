@@ -422,7 +422,7 @@ def setup_usd():
         "--build-variant", "release",
         "--usd-imaging", "--python", "--tools", "--usdview",
         "--no-examples", "--no-tutorials", "--no-docs", "--no-tests",
-        "--no-materialx", "--no-openimageio", "--no-alembic", "--no-draco",
+        "--no-openimageio", "--no-alembic", "--no-draco",
         "--no-embree", "--no-prman", "--no-openvdb", "--no-ptex",
         USD_LOCAL_INSTALL_DIR,
     ]
@@ -570,6 +570,49 @@ def _usd_tool_script(name):
         f"({USD_SRC_DIR}) and {bindir}. Ensure OpenUSD's tools are installed.")
 
 
+def _find_stage_camera(scene_path, env_vars):
+    """Path of the first authored Camera prim in the composed stage, or None.
+
+    usdview/usdrecord only auto-select a camera named after USD's hardcoded
+    default ("main_cam"/"primary") — an asset that ships its own camera under
+    any other name (common in production scenes) is silently ignored, and both
+    tools fall back to a free camera that auto-frames the *entire* stage
+    bounding box. For a scene built as an enclosed studio box (walls + a camera
+    deliberately placed inside), that fallback frames the box from outside,
+    where the opaque walls block everything — nothing renders. Finding the
+    real camera and passing it explicitly (see launch()/capture()) fixes that
+    without requiring the caller to know the prim path up front."""
+    script = (
+        "import sys\n"
+        "from pxr import Usd, UsdGeom\n"
+        "stage = Usd.Stage.Open(sys.argv[1])\n"
+        "cams = [p.GetPath() for p in stage.Traverse() if p.IsA(UsdGeom.Camera)]\n"
+        "print(str(cams[0]) if cams else '')\n"
+    )
+    result = subprocess.run([_usd_python(), "-c", script, scene_path],
+                           capture_output=True, text=True, env={**os.environ, **env_vars})
+    path = result.stdout.strip()
+    return path or None
+
+
+def _stage_has_lights(scene_path, env_vars):
+    """True if the composed stage authors any UsdLux light prim.
+
+    Scenes with no lights of their own (common in simple product-viz assets)
+    rely entirely on usdrecord's default camera headlight for illumination —
+    disabling that headlight unconditionally would render them black."""
+    script = (
+        "import sys\n"
+        "from pxr import Usd, UsdLux\n"
+        "stage = Usd.Stage.Open(sys.argv[1])\n"
+        "has_light = any(p.HasAPI(UsdLux.LightAPI) for p in stage.Traverse())\n"
+        "print('1' if has_light else '')\n"
+    )
+    result = subprocess.run([_usd_python(), "-c", script, scene_path],
+                           capture_output=True, text=True, env={**os.environ, **env_vars})
+    return bool(result.stdout.strip())
+
+
 def _resolve_capture_output_path(output_path):
     if os.path.isabs(output_path):
         return output_path
@@ -651,18 +694,22 @@ def _apply_capture_render_setting_overrides(
         _set_render_setting_override(env_vars, key, value, tokens)
 
 
-def launch(scene_path, *, render_settings=None):
+def launch(scene_path, *, render_settings=None, camera=None):
     env_vars = _usd_env()
     _apply_capture_render_setting_overrides(
         env_vars,
         render_settings=render_settings or [],
     )
 
+    resolved_camera = camera or _find_stage_camera(scene_path, env_vars)
+
     settings_path = os.path.join(PROJECT_ROOT, "settings", "RenderSetup.usda")
     wrapper_path  = _make_session_wrapper(scene_path, settings_path)
     try:
-        run([_usd_python(), _usd_tool_script("usdview"), wrapper_path,
-             "--renderer", "Restir"], env=env_vars)
+        cmd = [_usd_python(), _usd_tool_script("usdview"), wrapper_path, "--renderer", "Restir"]
+        if resolved_camera:
+            cmd += ["--camera", resolved_camera]
+        run(cmd, env=env_vars)
     finally:
         os.unlink(wrapper_path)
 
@@ -672,6 +719,7 @@ def capture(
     output_path,
     *,
     render_settings=None,
+    camera=None,
 ):
     env_vars = _usd_env()
     _apply_capture_render_setting_overrides(
@@ -682,11 +730,24 @@ def capture(
     resolved_output_path = _resolve_capture_output_path(output_path)
     os.makedirs(os.path.dirname(resolved_output_path), exist_ok=True)
 
+    resolved_camera = camera or _find_stage_camera(scene_path, env_vars)
+
     # GPU mode (default): usdrecord sets up an offscreen GL context via PySide
     # (built with usdview) and applies color correction, matching the reference
     # images. The Restir path tracer itself renders CPU-side.
-    run([_usd_python(), _usd_tool_script("usdrecord"),
-         "--renderer", "Restir", scene_path, resolved_output_path], env=env_vars)
+    #
+    # --disableCameraLight: usdrecord adds a camera headlight by default, which
+    # isn't part of the authored scene — disabled so capture renders what the
+    # scene actually contains. Only when the scene authors its own light(s):
+    # some simple assets (no UsdLux prims at all) rely entirely on this
+    # headlight for illumination and would render black without it.
+    cmd = [_usd_python(), _usd_tool_script("usdrecord"), "--renderer", "Restir"]
+    if _stage_has_lights(scene_path, env_vars):
+        cmd += ["--disableCameraLight"]
+    if resolved_camera:
+        cmd += ["--camera", resolved_camera]
+    cmd += [scene_path, resolved_output_path]
+    run(cmd, env=env_vars)
 
 
 def main():
@@ -699,11 +760,18 @@ def main():
     launch_parser = subparsers.add_parser("launch")
     launch_parser.add_argument("scene", nargs="?", default=os.path.join(PROJECT_ROOT, "example_scenes", "scene.usda"))
     launch_parser.add_argument("--render-setting", action="append", default=[])
+    launch_parser.add_argument("--camera", default=None,
+                               help="Camera prim path or name. Defaults to the first Camera prim "
+                                    "found in the stage, if any, since usdview otherwise only "
+                                    "auto-selects a camera matching USD's hardcoded default name.")
 
     capture_parser = subparsers.add_parser("capture")
     capture_parser.add_argument("scene", nargs="?", default=os.path.join(PROJECT_ROOT, "example_scenes", "scene.usda"))
     capture_parser.add_argument("output", nargs="?", default="capture.png")
     capture_parser.add_argument("--render-setting", action="append", default=[])
+    capture_parser.add_argument("--camera", default=None,
+                                help="Camera prim path or name. Defaults to the first Camera prim "
+                                     "found in the stage, if any.")
 
     args = parser.parse_args()
     command = args.command or "build"
@@ -716,7 +784,7 @@ def main():
                 raise ValueError(f"Invalid --render-setting value: {item!r}. Expected token=value.")
             extra_render_settings.append((token_name, value))
 
-        launch(args.scene, render_settings=extra_render_settings)
+        launch(args.scene, render_settings=extra_render_settings, camera=args.camera)
         return
     if command == "capture":
         extra_render_settings = []
@@ -730,6 +798,7 @@ def main():
             args.scene,
             args.output,
             render_settings=extra_render_settings,
+            camera=args.camera,
         )
         return
     if command == "debug":

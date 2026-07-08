@@ -120,6 +120,15 @@ TfTokenVector HdRestirRenderDelegate::GetMaterialRenderContexts() const
     return {TfToken("mtlx")};
 }
 
+TfToken HdRestirRenderDelegate::GetMaterialBindingPurpose() const
+{
+    // HdRenderDelegate defaults to HdTokens->preview, which ignores "full" purpose
+    // material:binding relationships (the purpose asset authors use for final-quality,
+    // offline-renderer materials as opposed to realtime-viewport previews). As a path
+    // tracer we want those, same as HdEmbree/HdPrman.
+    return HdTokens->full;
+}
+
 HdResourceRegistrySharedPtr HdRestirRenderDelegate::GetResourceRegistry() const
 {
     return _resourceRegistry;

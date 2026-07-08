@@ -151,9 +151,14 @@ namespace Restir
                     if (GfDot(reflectDir, shadingNormal) < 0)
                         reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal)
                                          .GetNormalized();
-                    const float cosH = std::max(0.f, GfDot(reflectDir, h));
-                    const float bsdfPdfVal{cosH > 0.f ? GGXPdf(h, shadingNormal, c.CoatRoughness) / (4.f * cosH) : 0.f};
-                    const SampledSpectrum tMul{RGBToSpectrum(c.CoatColor, lambda)};
+                    const float cosH  = std::max(0.f, GfDot(reflectDir, h));
+                    const float nDotV = std::max(0.f, GfDot(shadingNormal, -currentRayDir));
+                    const float nDotL = std::max(0.f, GfDot(shadingNormal, reflectDir));
+                    const float nDotH = std::max(0.f, GfDot(shadingNormal, h));
+                    const float coatAlpha{c.CoatRoughness * c.CoatRoughness};
+                    const float bsdfPdfVal{cosH > 0.f ? GGXPdf(h, shadingNormal, coatAlpha) / (4.f * cosH) : 0.f};
+                    const float ggxWeight{GGXReflectionWeight(nDotV, nDotL, cosH, nDotH, coatAlpha)};
+                    const SampledSpectrum tMul{RGBToSpectrum(c.CoatColor, lambda) * ggxWeight};
                     return BsdfBounceSample{
                         .NextRay       = {hitPos + shadingNormal * 1e-4f, reflectDir},
                         .ThroughputMul = tMul,
@@ -198,10 +203,14 @@ namespace Restir
                     if (GfDot(reflectDir, shadingNormal) < 0)
                         reflectDir = (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal)
                                          .GetNormalized();
-                    const float cosH = std::max(0.f, GfDot(reflectDir, h));
-                    const float bsdfPdfVal{cosH > 0.f ? GGXPdf(h, shadingNormal, c.SheenRoughness) / (4.f * cosH)
-                                                      : 0.f};
-                    const SampledSpectrum tMul{RGBToSpectrum(c.SheenColor, lambda)};
+                    const float cosH  = std::max(0.f, GfDot(reflectDir, h));
+                    const float nDotV = std::max(0.f, GfDot(shadingNormal, -currentRayDir));
+                    const float nDotL = std::max(0.f, GfDot(shadingNormal, reflectDir));
+                    const float nDotH = std::max(0.f, GfDot(shadingNormal, h));
+                    const float sheenAlpha{c.SheenRoughness * c.SheenRoughness};
+                    const float bsdfPdfVal{cosH > 0.f ? GGXPdf(h, shadingNormal, sheenAlpha) / (4.f * cosH) : 0.f};
+                    const float ggxWeight{GGXReflectionWeight(nDotV, nDotL, cosH, nDotH, sheenAlpha)};
+                    const SampledSpectrum tMul{RGBToSpectrum(c.SheenColor, lambda) * ggxWeight};
                     return BsdfBounceSample{
                         .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
                         .ThroughputMul           = tMul,
@@ -257,13 +266,23 @@ namespace Restir
                 if (GfDot(reflectDir, shadingNormal) < 0)
                     reflectDir =
                         (currentRayDir - 2.0f * GfDot(currentRayDir, shadingNormal) * shadingNormal).GetNormalized();
-                const float cosH = std::max(0.f, GfDot(reflectDir, h));
-                const float bsdfPdfVal{cosH > 0.f ? GGXPdf(h, shadingNormal, c.Roughness) / (4.f * cosH) : 0.f};
-                const SampledSpectrum tMul{RGBToSpectrum(reflTint, lambda)};
+                const float cosH  = std::max(0.f, GfDot(reflectDir, h));
+                const float nDotV = std::max(0.f, GfDot(shadingNormal, -currentRayDir));
+                const float nDotL = std::max(0.f, GfDot(shadingNormal, reflectDir));
+                const float nDotH = std::max(0.f, GfDot(shadingNormal, h));
+                // Conditional pdf within the reflect lobe (given we chose to reflect); reflectProb
+                // cancels out of the stochastic lobe-selection step by construction.
+                const float           baseAlpha{c.Roughness * c.Roughness};
+                const float           condPdfVal{cosH > 0.f ? GGXPdf(h, shadingNormal, baseAlpha) / (4.f * cosH) : 0.f};
+                const float           ggxWeight{GGXReflectionWeight(nDotV, nDotL, cosH, nDotH, baseAlpha)};
+                const SampledSpectrum tMul{RGBToSpectrum(reflTint, lambda) * ggxWeight};
+                // BsdfPdf must be the true marginal density across the full mixture (reflect +
+                // diffuse), matching GGXBsdf::Pdf() exactly, for cross-technique MIS against NEE.
+                const float bsdfPdfVal{GGXBsdf::Pdf(shadingNormal, -currentRayDir, reflectDir, c)};
                 return BsdfBounceSample{
                     .NextRay                 = {hitPos + shadingNormal * 1e-4f, reflectDir},
                     .ThroughputMul           = tMul,
-                    .ThroughputIntegrandMul  = tMul * bsdfPdfVal, // bsdf*cos = ThroughputMul*pdf
+                    .ThroughputIntegrandMul  = tMul * condPdfVal, // bsdf*cos = ThroughputMul*pdf
                     .BsdfPdf                 = {bsdfPdfVal, PdfSpace::SolidAngle},
                     .ImpossibleNEEConnection = false,
                 };

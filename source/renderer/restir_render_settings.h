@@ -20,16 +20,16 @@ PXR_NAMESPACE_USING_DIRECTIVE
          "restir:resolutionLevel")) /* --- Path tracing ---------------------------------------------------------- */      \
         ((enableSubsurface, "restir:path:enableSubsurface"))(                                                              \
             (maxReflectionBounces, "restir:path:maxReflectionBounces"))(                                                   \
-            (maxRefractionBounces, "restir:path:maxRefractionBounces"))((                                                  \
-            renderIblBackground,                                                                                           \
-            "restir:path:renderIblBackground")) /* --- RIS                                                                 \
-                                                   -------------------------------------------------------------------     \
-                                                 */                                                                        \
+            (maxRefractionBounces, "restir:path:maxRefractionBounces"))(                                                   \
+            (renderIblBackground, "restir:path:renderIblBackground"))((maxDepth, "restir:path:maxDepth"))(                 \
+            (rouletteAggressiveness, "restir:path:rouletteAggressiveness")) /* --- RIS                                     \
+                                       -------------------------------------------------------------------                 \
+                                     */                                                                                    \
         ((risCandidateCount, "restir:ris:candidateCount"))((risUseReservoir, "restir:ris:useReservoir"))(                  \
-            (splitScreenRisUseReservoir,                                                                                   \
-             "restir:splitScreen:ris:useReservoir")) /* --- Denoiser                                                       \
-                                                        --------------------------------------------------------------     \
-                                                      */                                                                   \
+            (splitScreenRisUseReservoir, "restir:splitScreen:ris:useReservoir"))(                                          \
+            (risSkipVisibility, "restir:ris:skipVisibility")) /* --- Denoiser                                              \
+                                 --------------------------------------------------------------                            \
+                               */                                                                                          \
         ((enableDenoiser, "restir:denoiser:enable"))((enableFireflyFilter, "restir:denoiser:fireflyFilter"))(              \
             (enableChromaticityBlur,                                                                                       \
              "restir:denoiser:chromaticityBlur")) /* --- Post-process                                                      \
@@ -73,10 +73,15 @@ TF_DECLARE_PUBLIC_TOKENS(HdRestirRenderSettingsTokens, HD_RESTIR_RENDER_SETTINGS
         SpecT{"Max Reflection Bounces", HdRestirRenderSettingsTokens->maxReflectionBounces, VtValue(8), true},         \
         SpecT{"Max Refraction Bounces", HdRestirRenderSettingsTokens->maxRefractionBounces, VtValue(8), true},         \
         SpecT{"Render IBL Background", HdRestirRenderSettingsTokens->renderIblBackground, VtValue(true), true},        \
+        SpecT{"Max Path Depth", HdRestirRenderSettingsTokens->maxDepth, VtValue(32), false},                           \
+        SpecT{"Russian Roulette Aggressiveness", HdRestirRenderSettingsTokens->rouletteAggressiveness, VtValue(1.0f),  \
+              false},                                                                                                  \
         SpecT{"RIS Candidate Count", HdRestirRenderSettingsTokens->risCandidateCount, VtValue(16), true},              \
         SpecT{"RIS Use Reservoir", HdRestirRenderSettingsTokens->risUseReservoir, VtValue(true), true},                \
         SpecT{"Split Screen Right RIS Use Reservoir", HdRestirRenderSettingsTokens->splitScreenRisUseReservoir,        \
               VtValue(true), true},                                                                                    \
+        SpecT{"RIS Skip Visibility (target function without shadow ray, for A/B perf testing)",                        \
+              HdRestirRenderSettingsTokens->risSkipVisibility, VtValue(false), true},                                  \
         SpecT{"Enable OIDN Denoiser", HdRestirRenderSettingsTokens->enableDenoiser, VtValue(true), true},              \
         SpecT{"Enable Pre-Pass: Firefly Filter", HdRestirRenderSettingsTokens->enableFireflyFilter, VtValue(true),     \
               true},                                                                                                   \

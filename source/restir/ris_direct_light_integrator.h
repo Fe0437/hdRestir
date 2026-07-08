@@ -31,21 +31,31 @@ namespace Restir
             SampledSpectrum Throughput{}; // L × bsdf × nDotL — updated in-place on temporal reuse
             double          risWeight{0.0};
             double          targetFunction{0.0};
+
+            // Whether Throughput already reflects a real shadow ray (or, for BSDF-origin
+            // candidates, a real traced bounce ray — visibility is inherent to the hit test).
+            // False only for a skipVisibility-generated NEE/SkyNEE candidate that hasn't won a
+            // resampling yet. Persists on the candidate itself (including across temporal reuse
+            // in the reservoir), so a candidate is only ever shadow-ray-corrected once, from the
+            // shading point where it was actually selected — never re-tested later against a
+            // different (possibly stale) shading point.
+            bool VisibilityTested{true};
         };
 
       public:
         using Candidate = RISLightCandidate;
 
         explicit RisDirectLightIntegrator(NotNullUniquePtr<ILightSampler> &&sampler, int candidateCount,
-                                          bool useReservoir = true)
-            : _sampler{std::move(sampler)}, _candidateCount{candidateCount}, _useReservoir{useReservoir}
+                                          bool useReservoir = true, bool skipVisibility = false)
+            : _sampler{std::move(sampler)}, _candidateCount{candidateCount}, _useReservoir{useReservoir},
+              _skipVisibility{skipVisibility}
         {
         }
 
         [[nodiscard]] std::unique_ptr<IDirectLightIntegrator> CloneAs() const override
         {
             return std::make_unique<RisDirectLightIntegrator>(NotNullUniquePtr<ILightSampler>{_sampler->CloneAs()},
-                                                              _candidateCount, _useReservoir);
+                                                              _candidateCount, _useReservoir, _skipVisibility);
         }
 
         // Top-level call: computes shading from hit when shadingPoint is absent.
@@ -60,8 +70,8 @@ namespace Restir
                                          const std::optional<BsdfBounceConnection> &bsdfConnection,
                                          CallIndex                                  callId) const override;
 
-        [[nodiscard]] static NotNullUniquePtr<IDirectLightIntegratorFactory> MakeFactory(int  candidateCount = 16,
-                                                                                         bool useReservoir   = true);
+        [[nodiscard]] static NotNullUniquePtr<IDirectLightIntegratorFactory>
+        MakeFactory(int candidateCount = 16, bool useReservoir = true, bool skipVisibility = false);
 
       private:
         struct OptionalRisLightCandidate : std::optional<RISLightCandidate>
@@ -83,6 +93,7 @@ namespace Restir
             int                  nNeeSampler;
             int                  nNeeSky;
             int                  nBsdf;
+            bool                 skipVisibility{false};
         };
 
         struct MISContrib
@@ -93,12 +104,16 @@ namespace Restir
             float                    PNee{0.0f};
             float                    PBsdf{0.0f};
             bool                     UseMis{false};
+            bool                     VisibilityTested{true}; // see RISLightCandidate::VisibilityTested
         };
 
-        // Fresh evaluation: fires a shadow ray, computes PNee and PBsdf for MIS.
-        // Used when generating NEE candidates each frame.
+        // Fresh evaluation: fires a shadow ray (unless skipVisibility is set, in which case the
+        // sample is treated as always visible — cheaper target function for candidate *selection*,
+        // for A/B perf testing; the returned VisibilityTested=false flags this up to the caller).
+        // computes PNee and PBsdf for MIS. Used when generating NEE candidates each frame.
         [[nodiscard]] static MISContrib _evaluateLightSample(const RayIntersection &isect, const ILight &light,
-                                                             const LightSample &ls, const IScene &scene);
+                                                             const LightSample &ls, const IScene &scene,
+                                                             bool skipVisibility);
 
         // Temporal re-evaluation: no shadow ray (stored visibility accepted).
         // Returns L × bsdf × nDotL as a spectrum — the unweighted target function p̂.
@@ -125,6 +140,7 @@ namespace Restir
         NotNullUniquePtr<ILightSampler> _sampler;
         int                             _candidateCount;
         bool                            _useReservoir;
+        bool                            _skipVisibility;
     };
 
 } // namespace Restir

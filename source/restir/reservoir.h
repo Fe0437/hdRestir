@@ -100,8 +100,10 @@ namespace Restir
          * Adding a new technique increases allCandidates.size() automatically,
          * so the callsite never needs updating.
          *
-         * All risWeights must include the 1/N factor (1/candidatesPerTechnique)
-         * so that WSum ≈ p̂ × Σ(misWeight/p) independent of N and frameCount.
+         * risWeights do NOT need their own 1/N factor for a single frame (frameCount=1 makes
+         * this division a no-op there); this frameCount division is what keeps W stable
+         * specifically across K *temporal* merges, where CandidateCount grows to
+         * K × candidatesPerFrame.
          */
         void Finalize(int candidatesPerFrame)
         {

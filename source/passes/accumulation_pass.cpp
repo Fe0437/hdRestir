@@ -103,6 +103,12 @@ namespace Restir
 
         for (std::size_t i = 0; i < count; ++i)
         {
+#if DEBUG_ENABLED
+            for (int c{0}; c < 3; ++c)
+            {
+                DBG_ASSERT(std::isfinite(fb[i][c]), "non-finite framebuffer value");
+            }
+#endif
 #if METRICS_ENABLED
             const double luminance{static_cast<double>(GetLuminance(fb[i]))};
             lumSum[i] += luminance;

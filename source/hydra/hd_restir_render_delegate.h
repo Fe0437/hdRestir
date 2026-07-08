@@ -41,6 +41,7 @@ class HdRestirRenderDelegate final : public HdRenderDelegate
     const TfTokenVector &GetSupportedBprimTypes() const override;
     TfTokenVector        GetShaderSourceTypes() const override;
     TfTokenVector        GetMaterialRenderContexts() const override;
+    TfToken              GetMaterialBindingPurpose() const override;
 
     HdResourceRegistrySharedPtr GetResourceRegistry() const override;
 
