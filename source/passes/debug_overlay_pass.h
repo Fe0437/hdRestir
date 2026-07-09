@@ -46,7 +46,12 @@ namespace Restir
 
         [[nodiscard]] static std::vector<std::string> StaticInputs()
         {
-            return {std::string{kColorOutputName}, std::string{kVarianceOutputName}};
+            return {
+                std::string{kColorOutputName},
+#if METRICS_ENABLED
+                std::string{kVarianceOutputName},
+#endif
+            };
         }
 
         [[nodiscard]] static std::vector<std::string> StaticOutputs()

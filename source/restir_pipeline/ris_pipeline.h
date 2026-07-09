@@ -28,7 +28,8 @@ namespace Restir
         passSpecs.push_back(Detail::MakePassSpec<RISPathTracePass>(
             settings.CandidateCount, settings.UseReservoir, settings.SkipVisibility, settings.PathTracer.PathTrace,
             settings.PathTracer.MaxDepth));
-        passSpecs.push_back(Detail::MakePassSpec<AccumulationPass>(settings.PathTracer.Denoiser.EnableFireflyFilter));
+        passSpecs.push_back(Detail::MakeAccumulationPassSpec(settings.PathTracer.UseGpu,
+                                                             settings.PathTracer.Denoiser.EnableFireflyFilter));
         if (settings.PathTracer.ResolutionLevel > 0)
         {
             passSpecs.push_back(Detail::MakePassSpec<UpscalePass>(settings.PathTracer.OutputNames));

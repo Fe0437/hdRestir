@@ -9,6 +9,8 @@ namespace Restir
 #if DEBUG_ENABLED
     inline constexpr std::string_view kPassTimingOutputName{"PassTiming"};
     inline constexpr std::string_view kPassSumTimingOutputName{"PassSumTiming"};
+#endif
+#if METRICS_ENABLED
     inline constexpr std::string_view kVarianceOutputName{"Variance"};
 
     struct VarianceStats
@@ -24,6 +26,15 @@ namespace Restir
 #if METRICS_ENABLED
     inline constexpr std::string_view kAccumLumSumBuf{"__accum_lum_sum"};
     inline constexpr std::string_view kAccumLumSumSqBuf{"__accum_lum_sum_sq"};
+#if GPU_ENABLED
+    // GpuAccumulationPass accumulates luminance sums in float precision
+    // (Apple GPUs have no double type) — distinct persistent buffers from
+    // the CPU AccumulationPass's double-precision accumulators, so switching
+    // AccumulationPass <-> GpuAccumulationPass mid-session can't reinterpret
+    // one precision's bytes as the other's.
+    inline constexpr std::string_view kGpuAccumLumSumBuf{"__gpu_accum_lum_sum"};
+    inline constexpr std::string_view kGpuAccumLumSumSqBuf{"__gpu_accum_lum_sum_sq"};
+#endif
 #endif
     inline constexpr std::string_view kDepthOutputName{"Depth"};
     inline constexpr std::string_view kAlbedoOutputName{"Albedo"};

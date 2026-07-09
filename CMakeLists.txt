@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.28) # 3.28+ needed for C++23 module dependency scanning (HdRestirGpu / LightRHI)
 project(HdRestir LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -28,6 +28,30 @@ else()
 endif()
 option(DEBUG_ENABLED  "Enable HdRestir debug macros (asserts, logs, named objects)" ${_debug_default})
 option(METRICS_ENABLED "Enable HdRestir runtime metrics (variance logging, counters)" ${_debug_default})
+
+# GPU-accelerated ReSTIR passes via the LightRHI submodule (external/rhi).
+# LightRHI is built from C++23 modules, which require a compiler with
+# clang-scan-deps. Fail at configure time when the requested GPU toolchain is
+# incomplete; silently changing build features hides cross-environment errors.
+option(GPU_ENABLED "Enable GPU-accelerated ReSTIR passes via LightRHI" ON)
+if(GPU_ENABLED)
+    get_filename_component(_cxx_compiler_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    find_program(_clang_scan_deps
+        NAMES clang-scan-deps
+        HINTS "${_cxx_compiler_dir}"
+        NO_CACHE)
+
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        message(FATAL_ERROR "[HdRestir] GPU requires upstream Clang with clang-scan-deps; "
+                            "${CMAKE_CXX_COMPILER_ID} is active")
+    elseif(NOT _clang_scan_deps)
+        message(FATAL_ERROR "[HdRestir] GPU requires clang-scan-deps next to the compiler or on PATH")
+    elseif(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/rhi/CMakeLists.txt")
+        message(FATAL_ERROR "[HdRestir] GPU requires the external/rhi submodule")
+    else()
+        set(CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS "${_clang_scan_deps}" CACHE FILEPATH "Path to clang-scan-deps")
+    endif()
+endif()
 
 set(CMAKE_MACOSX_RPATH ON)
 
@@ -78,6 +102,19 @@ else()
     message(STATUS "[HdRestir] OpenImageDenoise not found — OIDN disabled")
 endif()
 
+# LightRHI (external/rhi) — only pulled in when the compiler can build its
+# C++23 modules (see GPU_ENABLED guard above).
+if(GPU_ENABLED)
+    set(LIGHT_RHI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(LIGHT_RHI_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+    add_subdirectory(external/rhi)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/external/rhi/cmake/Shaders.cmake")
+
+    if(NOT LIGHT_RHI_SLANG_AVAILABLE)
+        message(FATAL_ERROR "[HdRestir] GPU requires slangc. Put slangc on PATH, set SLANG_DIR, or set SLANGC.")
+    endif()
+endif()
+
 # ----------------------------------------------------------------
 # Sources
 # ----------------------------------------------------------------
@@ -91,6 +128,19 @@ file(GLOB_RECURSE SOURCE_CPP CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp"
 )
 list(SORT SOURCE_CPP)
+
+# source/gpu_functions/*.cpp may import LightRHI's C++23 modules. LightRHI's
+# module ABI requires -fno-rtti on any TU that imports it, which would otherwise
+# leak (as a PUBLIC usage requirement) onto every HdRestir source and break
+# USD/boost-python's typeid/RTTI usage. Build those implementation files into a
+# PRIVATE-linked static library below, which absorbs that requirement instead
+# of re-exporting it. RenderPass code stays under source/gpu_passes in the main
+# HdRestir target and talks to gpu_functions only through plain C++ headers.
+file(GLOB_RECURSE GPU_FUNCTION_CPP CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/source/gpu_functions/*.cpp"
+)
+list(SORT GPU_FUNCTION_CPP)
+list(REMOVE_ITEM SOURCE_CPP ${GPU_FUNCTION_CPP})
 
 set(SOURCES
     ${PLUGIN_SOURCES}
@@ -115,6 +165,8 @@ target_compile_definitions(HdRestir PRIVATE
     $<$<NOT:$<BOOL:${DEBUG_ENABLED}>>:DEBUG_ENABLED=0>
     $<$<BOOL:${METRICS_ENABLED}>:METRICS_ENABLED=1>
     $<$<NOT:$<BOOL:${METRICS_ENABLED}>>:METRICS_ENABLED=0>
+    $<$<BOOL:${GPU_ENABLED}>:GPU_ENABLED=1>
+    $<$<NOT:$<BOOL:${GPU_ENABLED}>>:GPU_ENABLED=0>
 )
 
 # Collect source/ and every immediate subdirectory as include roots.
@@ -137,6 +189,40 @@ target_link_libraries(HdRestir PRIVATE
     usdImaging
     Microsoft.GSL::GSL
 )
+
+if(GPU_ENABLED)
+    add_library(HdRestirGpu STATIC ${GPU_FUNCTION_CPP})
+    target_compile_features(HdRestirGpu PRIVATE cxx_std_23)
+    # Must match LightRHI's own CXX_EXTENSIONS OFF (module ABI/config consistency).
+    set_target_properties(HdRestirGpu PROPERTIES CXX_EXTENSIONS OFF)
+    target_include_directories(HdRestirGpu PRIVATE ${SOURCE_INCLUDE_DIRS})
+    target_compile_definitions(HdRestirGpu PRIVATE
+        GPU_ENABLED=1
+        $<$<BOOL:${METRICS_ENABLED}>:METRICS_ENABLED=1>
+        $<$<NOT:$<BOOL:${METRICS_ENABLED}>>:METRICS_ENABLED=0>
+    )
+    # PRIVATE: absorbs LightRHI's PUBLIC -fno-rtti (module ABI requirement)
+    # here instead of propagating it to HdRestir's other translation units.
+    target_link_libraries(HdRestirGpu PRIVATE LightRHI::LightRHI LightRHI::Backend Microsoft.GSL::GSL gf)
+
+    set(GPU_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders")
+    light_rhi_compile_shaders(
+        TARGET          HdRestirGpu
+        SHADERS_JSON    "${CMAKE_CURRENT_SOURCE_DIR}/source/gpu_functions/shaders/shaders_registry.generated.json"
+        OUTPUT_DIR      "${GPU_SHADER_DIR}"
+        BACKEND_DIR_VAR _GPU_SHADER_BACKEND
+        EXTENSION_VAR   _GPU_SHADER_EXT
+        FORMAT_VAR      _GPU_SHADER_FORMAT)
+
+    target_compile_definitions(HdRestirGpu PRIVATE
+        GPU_SHADER_DIR="${GPU_SHADER_DIR}"
+        GPU_SHADER_BACKEND_DIR="${_GPU_SHADER_BACKEND}"
+        GPU_SHADER_EXTENSION="${_GPU_SHADER_EXT}"
+        GPU_SHADER_FORMAT=${_GPU_SHADER_FORMAT}
+    )
+
+    target_link_libraries(HdRestir PRIVATE HdRestirGpu)
+endif()
 
 target_compile_definitions(HdRestir PRIVATE
     $<$<OR:$<CONFIG:Debug>,$<CONFIG:RelWithDebInfo>>:gsl_CONFIG_CONTRACT_VIOLATION_THROWS=1>
@@ -169,6 +255,10 @@ elseif(DEFINED ENV{CONDA_PREFIX})
 elseif(TARGET TBB::tbb)
     get_target_property(_tbb_loc TBB::tbb LOCATION)
     get_filename_component(_PLUGIN_RPATH "${_tbb_loc}" DIRECTORY)
+endif()
+
+if(GPU_ENABLED)
+    list(APPEND _PLUGIN_RPATH "$<TARGET_FILE_DIR:LightRHIBackend>")
 endif()
 
 message(STATUS "[HdRestir] BUILD_RPATH → ${_PLUGIN_RPATH}")

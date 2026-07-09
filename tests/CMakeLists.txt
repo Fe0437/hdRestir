@@ -16,7 +16,14 @@ foreach(_test IN ITEMS test_camera test_frame_buffer test_rng test_split_screen 
         HDRESTIR_DEBUG_SETTING=${HDRESTIR_DEBUG_SETTING_VALUE}
         HDRESTIR_METRICS_SETTING=${HDRESTIR_METRICS_SETTING_VALUE}
         $<$<CONFIG:Debug>:gsl_CONFIG_CONTRACT_VIOLATION_THROWS=1>
+        $<$<BOOL:${METRICS_ENABLED}>:METRICS_ENABLED=1>
+        $<$<NOT:$<BOOL:${METRICS_ENABLED}>>:METRICS_ENABLED=0>
+        $<$<BOOL:${GPU_ENABLED}>:GPU_ENABLED=1>
+        $<$<NOT:$<BOOL:${GPU_ENABLED}>>:GPU_ENABLED=0>
     )
+    if(GPU_ENABLED)
+        target_link_libraries(${_test} PRIVATE HdRestirGpu)
+    endif()
     add_test(NAME ${_test} COMMAND ${_test})
     set_tests_properties(${_test} PROPERTIES LABELS "smoke")
 endforeach()

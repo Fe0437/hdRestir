@@ -446,7 +446,143 @@ def setup_usd():
 
 # ── build ─────────────────────────────────────────────────────────
 
-def build(debug=False):
+def _compiler_exists(command):
+    if not command:
+        return False
+    exe = command[0] if isinstance(command, (list, tuple)) else command
+    return bool(shutil.which(exe) or os.path.exists(exe))
+
+
+def _compiler_version_text(command):
+    try:
+        result = subprocess.run([command, "--version"], capture_output=True, text=True)
+    except OSError:
+        return ""
+    return result.stdout + result.stderr if result.returncode == 0 else ""
+
+
+def _is_apple_clang(command):
+    return "Apple clang" in _compiler_version_text(command)
+
+
+def _clang_scan_deps_for(cxx_compiler):
+    compiler_dir = os.path.dirname(os.path.abspath(cxx_compiler)) if os.path.isabs(cxx_compiler) else ""
+    candidates = []
+    if compiler_dir:
+        candidates.append(os.path.join(compiler_dir, "clang-scan-deps"))
+    path_scan_deps = shutil.which("clang-scan-deps")
+    if path_scan_deps:
+        candidates.append(path_scan_deps)
+
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def _c_compiler_for_cxx(cxx_compiler):
+    base = os.path.basename(cxx_compiler)
+    directory = os.path.dirname(cxx_compiler)
+    c_base = base.replace("clang++", "clang", 1)
+    if c_base == base:
+        return None
+    candidate = os.path.join(directory, c_base) if directory else c_base
+    return candidate if _compiler_exists([candidate]) else None
+
+
+def _brew_llvm_clangxx():
+    """Resolve Homebrew's llvm keg via `brew --prefix llvm`, not a hardcoded path.
+
+    Homebrew's llvm formula is keg-only (it conflicts with the system clang),
+    so it's never on PATH after a plain `brew install llvm`; `brew --prefix`
+    is the portable way to find it regardless of version or install root
+    (/opt/homebrew vs /usr/local) — see external/rhi/ARCHITECTURE.md, which
+    documents passing this compiler explicitly for exactly this reason.
+    """
+    if not shutil.which("brew"):
+        return None
+    try:
+        result = subprocess.run(["brew", "--prefix", "llvm"], capture_output=True, text=True)
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    candidate = os.path.join(result.stdout.strip(), "bin", "clang++")
+    return candidate if os.path.exists(candidate) else None
+
+
+def _find_gpu_capable_clang_pair():
+    """Return (cc, cxx, clang_scan_deps) for a portable Clang modules toolchain.
+
+    Discovery is intentionally capability-based: respect explicit CC/CXX first,
+    then search PATH for versioned and unversioned Clang names, then fall back
+    to Homebrew's (keg-only, PATH-invisible) llvm via `brew --prefix`. Package-
+    manager install prefixes differ across machines and operating systems, so
+    hardcoded Cellar/opt paths do not belong here — `brew --prefix` resolves
+    that portably instead.
+    """
+    cxx_candidates = []
+    env_cxx = os.environ.get("CXX")
+    if env_cxx:
+        cxx_candidates.append(env_cxx)
+
+    for major in range(20, 15, -1):
+        cxx_candidates.append(f"clang++-{major}")
+    cxx_candidates.append("clang++")
+
+    brew_clangxx = _brew_llvm_clangxx()
+    if brew_clangxx:
+        cxx_candidates.append(brew_clangxx)
+
+    seen = set()
+    for cxx in cxx_candidates:
+        cxx_path = shutil.which(cxx) or (cxx if os.path.exists(cxx) else None)
+        if not cxx_path or cxx_path in seen:
+            continue
+        seen.add(cxx_path)
+        if _is_apple_clang(cxx_path):
+            continue
+
+        scan_deps = _clang_scan_deps_for(cxx_path)
+        if not scan_deps:
+            continue
+
+        env_cc = os.environ.get("CC")
+        cc_path = None
+        if env_cc:
+            cc_path = shutil.which(env_cc) or (env_cc if os.path.exists(env_cc) else None)
+        if not cc_path:
+            cc_path = _c_compiler_for_cxx(cxx_path)
+        if not cc_path:
+            continue
+
+        return cc_path, cxx_path, scan_deps
+
+    return None
+
+
+def _macos_sdkroot():
+    """Resolve the macOS SDK path via xcrun, not a hardcoded path.
+
+    external/rhi/ARCHITECTURE.md documents that SDKROOT must be exported on
+    macOS so clang-scan-deps can find system headers (objc/runtime.h etc.)
+    when compiling against a non-Apple Clang (e.g. Homebrew's llvm). Respects
+    an already-exported SDKROOT; returns None on non-macOS or if xcrun can't
+    resolve one, leaving the environment untouched.
+    """
+    if os.environ.get("SDKROOT"):
+        return os.environ["SDKROOT"]
+    if OS != "Darwin" or not shutil.which("xcrun"):
+        return None
+    try:
+        result = subprocess.run(["xcrun", "--sdk", "macosx", "--show-sdk-path"],
+                                capture_output=True, text=True)
+    except OSError:
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def build(debug=False, gpu=True):
     setup_usd()
     _prepare_build_dir_for_cmake()
 
@@ -464,16 +600,38 @@ def build(debug=False):
         # so they must be present in Release builds too. Cost is negligible.
         "-DMETRICS_ENABLED=ON",
     ]
-    if OS == "Windows":
-        # On Windows the project compiles with clang (targeting the MSVC ABI),
-        # not the default cl.exe; select it explicitly so a fresh configure is
-        # deterministic.
-        cmake_conf += ["-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++"]
     if OS == "Darwin":
         cmake_conf.append("-DCMAKE_OSX_ARCHITECTURES=arm64")
 
-    run(cmake_conf)
-    run(["cmake", "--build", "build"])
+    build_env = {}
+    if gpu:
+        # GPU-accelerated ReSTIR passes (external/rhi, LightRHI) use C++23
+        # modules. Prefer any PATH/env-discoverable upstream Clang toolchain
+        # that provides clang-scan-deps. Fail early when the environment does
+        # not provide the required toolchain instead of silently changing build
+        # features across machines.
+        gpu_toolchain = _find_gpu_capable_clang_pair()
+        if not gpu_toolchain:
+            raise RuntimeError(
+                "No upstream Clang toolchain with clang-scan-deps found. "
+                "Set CC/CXX or PATH to a Clang installation that provides clang-scan-deps, "
+                "or pass --no-gpu to build without GPU-accelerated passes."
+            )
+        clang, clangxx, clang_scan_deps = gpu_toolchain
+        cmake_conf += [
+            f"-DCMAKE_C_COMPILER={clang}",
+            f"-DCMAKE_CXX_COMPILER={clangxx}",
+            f"-DCMAKE_CXX_COMPILER_CLANG_SCAN_DEPS={clang_scan_deps}",
+        ]
+
+        sdkroot = _macos_sdkroot()
+        if sdkroot:
+            build_env["SDKROOT"] = sdkroot
+    else:
+        cmake_conf.append("-DGPU_ENABLED=OFF")
+
+    run(cmake_conf, env=build_env)
+    run(["cmake", "--build", "build"], env=build_env)
 
 
 # ── launch / capture ──────────────────────────────────────────────
@@ -754,8 +912,14 @@ def main():
     parser = argparse.ArgumentParser(description="HdRestir workflow helper")
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser("build")
-    subparsers.add_parser("debug")
+    build_parser = subparsers.add_parser("build")
+    build_parser.add_argument("--no-gpu", action="store_true",
+                              help="Build without GPU-accelerated ReSTIR passes (skips the "
+                                   "upstream-Clang/clang-scan-deps toolchain requirement).")
+    debug_parser = subparsers.add_parser("debug")
+    debug_parser.add_argument("--no-gpu", action="store_true",
+                              help="Build without GPU-accelerated ReSTIR passes (skips the "
+                                   "upstream-Clang/clang-scan-deps toolchain requirement).")
 
     launch_parser = subparsers.add_parser("launch")
     launch_parser.add_argument("scene", nargs="?", default=os.path.join(PROJECT_ROOT, "example_scenes", "scene.usda"))
@@ -802,10 +966,10 @@ def main():
         )
         return
     if command == "debug":
-        build(debug=True)
+        build(debug=True, gpu=not args.no_gpu)
         return
 
-    build()
+    build(gpu=not getattr(args, "no_gpu", False))
 
 
 if __name__ == "__main__":

@@ -9,6 +9,10 @@
 #include "render_pipeline.h"
 #include "upscale_pass.h"
 
+#if GPU_ENABLED
+#include "gpu_accumulation_pass.h"
+#endif
+
 #if DEBUG_ENABLED
 #include "debug_overlay_pass.h"
 #endif
@@ -31,12 +35,15 @@ namespace Restir
 
     struct PathTracerPipelineSettings
     {
+        static constexpr bool DefaultUseGpu{GPU_ENABLED};
+
         int                      MaxDepth{32};
         int                      ResolutionLevel{0};
         std::vector<std::string> OutputNames{std::string{kColorOutputName}};
         PathTracePassSettings    PathTrace{};
         Denoiser::Config         Denoiser{};
         PostProcess::Config      PostProcess{};
+        bool                     UseGpu{DefaultUseGpu};
 #if DEBUG_ENABLED
         DebugOverlayPass::Config DebugOverlay{};
 #endif
@@ -90,6 +97,20 @@ namespace Restir
                                       { return std::make_unique<PassT>(unpackedArgs...); }, ctorArgs);
                 },
             };
+        }
+
+        // AccumulationPass vs GpuAccumulationPass — see PathTracerPipelineSettings::UseGpu.
+        [[nodiscard]] inline PipelinePassSpec MakeAccumulationPassSpec(bool useGpu, bool enableFireflyFilter)
+        {
+#if GPU_ENABLED
+            if (useGpu)
+            {
+                return MakePassSpec<GpuAccumulationPass>(enableFireflyFilter);
+            }
+#else
+            (void)useGpu;
+#endif
+            return MakePassSpec<AccumulationPass>(enableFireflyFilter);
         }
 
         [[nodiscard]] inline std::unique_ptr<RenderPipeline>
@@ -158,7 +179,7 @@ namespace Restir
         std::vector<Detail::PipelinePassSpec> passSpecs{};
         passSpecs.push_back(Detail::MakePassSpec<RaycastPass>(settings.OutputNames));
         passSpecs.push_back(Detail::MakePassSpec<PathTracePass>(settings.PathTrace, settings.MaxDepth));
-        passSpecs.push_back(Detail::MakePassSpec<AccumulationPass>(settings.Denoiser.EnableFireflyFilter));
+        passSpecs.push_back(Detail::MakeAccumulationPassSpec(settings.UseGpu, settings.Denoiser.EnableFireflyFilter));
 #if DEBUG_ENABLED
         if (settings.DebugOverlay.Enable)
         {
@@ -176,7 +197,7 @@ namespace Restir
         std::vector<Detail::PipelinePassSpec> passSpecs{};
         passSpecs.push_back(Detail::MakePassSpec<RaycastPass>(settings.OutputNames));
         passSpecs.push_back(Detail::MakePassSpec<PathTracePass>(settings.PathTrace, settings.MaxDepth));
-        passSpecs.push_back(Detail::MakePassSpec<AccumulationPass>(settings.Denoiser.EnableFireflyFilter));
+        passSpecs.push_back(Detail::MakeAccumulationPassSpec(settings.UseGpu, settings.Denoiser.EnableFireflyFilter));
         if (settings.ResolutionLevel > 0)
         {
             passSpecs.push_back(Detail::MakePassSpec<UpscalePass>(settings.OutputNames));
@@ -203,7 +224,7 @@ namespace Restir
         std::vector<Detail::PipelinePassSpec> passSpecs{};
         passSpecs.push_back(Detail::MakePassSpec<RaycastPass>(settings.OutputNames));
         passSpecs.push_back(Detail::MakePassSpec<PathTracePass>(settings.PathTrace, settings.MaxDepth));
-        passSpecs.push_back(Detail::MakePassSpec<AccumulationPass>(settings.Denoiser.EnableFireflyFilter));
+        passSpecs.push_back(Detail::MakeAccumulationPassSpec(settings.UseGpu, settings.Denoiser.EnableFireflyFilter));
         passSpecs.push_back(Detail::MakePassSpec<DenoiserPass>(settings.Denoiser));
         passSpecs.push_back(Detail::MakePassSpec<PostProcessPass>(settings.PostProcess));
         if (settings.ResolutionLevel > 0)

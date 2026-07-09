@@ -62,6 +62,7 @@ namespace Restir
                         .EnableLensFlare     = Get<bool>(v, HdRestirRenderSettingsTokens->enableLensFlare, false),
                         .ChromaticAberration = Get<float>(v, HdRestirRenderSettingsTokens->chromaticAberration, 0.0f),
                     },
+                .UseGpu = Get<bool>(v, HdRestirRenderSettingsTokens->useGpu, PathTracerPipelineSettings::DefaultUseGpu),
 #if DEBUG_ENABLED
                 .DebugOverlay =
                     DebugOverlayPass::Config{

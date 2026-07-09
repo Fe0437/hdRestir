@@ -28,3 +28,4 @@ build*
 performance_reference/**/*.json
 /external/OpenUSD/
 /external/usd-install/
+*.generated.*

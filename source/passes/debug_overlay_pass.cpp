@@ -220,6 +220,7 @@ namespace Restir
         _drawText(fb, bufW, bufH, visMinX + (visW - static_cast<int>(totalStr.size()) * 8 * builtinScale) / 2,
                   topAnchor - 3 * builtinLineH, totalStr, white, builtinScale);
 
+#if METRICS_ENABLED
         if (ctx.buffers.Has(kVarianceOutputName))
         {
             const auto &v{ctx.buf<VarianceStats>(kVarianceOutputName)[0]};
@@ -229,6 +230,7 @@ namespace Restir
             _drawText(fb, bufW, bufH, visMinX + (visW - static_cast<int>(varStr.size()) * 8 * builtinScale) / 2,
                       topAnchor - 4 * builtinLineH, varStr, white, builtinScale);
         }
+#endif
 
         // User-configured entries centered within the visible area.
         // Entry Y=0 → visual bottom, Y=1 → visual top (within the visible region).

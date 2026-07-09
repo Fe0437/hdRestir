@@ -26,7 +26,7 @@ namespace Restir
         {
             return {
                 std::string{kColorOutputName},
-#if DEBUG_ENABLED
+#if METRICS_ENABLED
                 std::string{kVarianceOutputName},
 #endif
             };
@@ -40,7 +40,7 @@ namespace Restir
         {
             return {
                 std::string{kColorOutputName},
-#if DEBUG_ENABLED
+#if METRICS_ENABLED
                 std::string{kVarianceOutputName},
 #endif
             };

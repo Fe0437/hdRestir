@@ -18,7 +18,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
         (targetSampleCount, "restir:targetSampleCount"))(                                                                  \
         (resolutionLevel,                                                                                                  \
          "restir:resolutionLevel")) /* --- Path tracing ---------------------------------------------------------- */      \
-        ((enableSubsurface, "restir:path:enableSubsurface"))(                                                              \
+        ((enableSubsurface, "restir:path:enableSubsurface"))((useGpu, "restir:path:useGpu"))(                              \
             (maxReflectionBounces, "restir:path:maxReflectionBounces"))(                                                   \
             (maxRefractionBounces, "restir:path:maxRefractionBounces"))(                                                   \
             (renderIblBackground, "restir:path:renderIblBackground"))((maxDepth, "restir:path:maxDepth"))(                 \
@@ -70,6 +70,7 @@ TF_DECLARE_PUBLIC_TOKENS(HdRestirRenderSettingsTokens, HD_RESTIR_RENDER_SETTINGS
               false},                                                                                                  \
         SpecT{"Resolution Level", HdRestirRenderSettingsTokens->resolutionLevel, VtValue(2), false},                   \
         SpecT{"Enable Subsurface Scattering", HdRestirRenderSettingsTokens->enableSubsurface, VtValue(true), true},    \
+        SpecT{"Use GPU", HdRestirRenderSettingsTokens->useGpu, VtValue(true), true},                                   \
         SpecT{"Max Reflection Bounces", HdRestirRenderSettingsTokens->maxReflectionBounces, VtValue(8), true},         \
         SpecT{"Max Refraction Bounces", HdRestirRenderSettingsTokens->maxRefractionBounces, VtValue(8), true},         \
         SpecT{"Render IBL Background", HdRestirRenderSettingsTokens->renderIblBackground, VtValue(true), true},        \
