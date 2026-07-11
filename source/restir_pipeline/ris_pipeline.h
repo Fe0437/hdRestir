@@ -35,7 +35,7 @@ namespace Restir
             passSpecs.push_back(Detail::MakePassSpec<UpscalePass>(settings.PathTracer.OutputNames));
         }
 #if DEBUG_ENABLED
-        if (settings.PathTracer.DebugOverlay.Enable)
+        if (settings.PathTracer.DebugOverlay.Enable || settings.PathTracer.DebugOverlay.EnableProfiling)
         {
             auto cfg{settings.PathTracer.DebugOverlay};
             cfg.Entries.push_back(DebugOverlayTextEntry{.Text = "RIS"});

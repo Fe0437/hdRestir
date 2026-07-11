@@ -2,6 +2,7 @@
 
 #include "direct_light_integrator_interface.h"
 #include "material.h"
+#include "metrics_on_buffers.h"
 #include "shading_helpers.h"
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -9,10 +10,39 @@ PXR_NAMESPACE_USING_DIRECTIVE
 namespace Restir
 {
 
+#if METRICS_ENABLED
+    namespace
+    {
+
+        // Breaks PathIntegrator's own "Li" cost (see IntegrationPass,
+        // core/metrics_on_buffers.h) down into its two per-bounce phases:
+        // BSDF sampling vs direct lighting/NEE — declared via
+        // DeclareSubMetrics as slots 0/1 of the shared
+        // Metrics::kSubMetrics.ValuesBuf buffer, and used directly as
+        // their display labels.
+        constexpr std::string_view kBsdfSampleMsBuf{"BSDFSample"};
+        constexpr std::string_view kDirectLightMsBuf{"DirectLight"};
+        constexpr std::size_t      kBsdfSampleSlot{0};
+        constexpr std::size_t      kDirectLightSlot{1};
+
+    } // namespace
+#endif
+
     PathIntegrator::PathIntegrator(NotNullUniquePtr<IDirectLightIntegratorFactory> &&factory,
                                    PathTracePassSettings settings, int maxDepth)
         : _settings{settings}, _maxDepth{maxDepth}, _factory{std::move(factory)}
     {
+    }
+
+    void PathIntegrator::PrepareBuffers(IBufferProvider &provider, const IScene &scene)
+    {
+#if METRICS_ENABLED
+        Metrics::DeclareSubMetrics(provider, {kBsdfSampleMsBuf, kDirectLightMsBuf});
+#endif
+        if (IBufferStager * inner{_factory->GetBufferStager()})
+        {
+            inner->PrepareBuffers(provider, scene);
+        }
     }
 
     SampledSpectrum PathIntegrator::Li(const RayIntersection &isect, const IScene &scene, Rng &rng,
@@ -74,12 +104,19 @@ namespace Restir
 
         const IMaterial                 &firstMaterial{scene.GetMaterial(isect.hit->MatId)};
         const BounceWithConnectionResult firstBounceResult{
-            Detail::SampleBounceWithConnection(firstMaterial, isect, config, bounceState, scene, rng)};
+            [&]
+            {
+                RESTIR_BUFFER_METRIC_SCOPE(provider, Metrics::kSubMetrics.ValuesBuf, kBsdfSampleSlot);
+                return Detail::SampleBounceWithConnection(firstMaterial, isect, config, bounceState, scene, rng);
+            }()};
         const std::optional<BsdfBounceConnection> firstConnection{
             std::holds_alternative<BsdfBounceConnection>(firstBounceResult)
                 ? std::make_optional(std::get<BsdfBounceConnection>(firstBounceResult))
                 : std::nullopt};
-        totalRadiance += directLight->Li(isect, scene, rng, lambda, provider, firstConnection, callId);
+        {
+            RESTIR_BUFFER_METRIC_SCOPE(provider, Metrics::kSubMetrics.ValuesBuf, kDirectLightSlot);
+            totalRadiance += directLight->Li(isect, scene, rng, lambda, provider, firstConnection, callId);
+        }
 
         if (!std::holds_alternative<BsdfBounceConnection>(firstBounceResult))
         {
@@ -127,13 +164,20 @@ namespace Restir
             const RayIntersection        bounceIsect{currentRay, bounceHit, bounceSp};
 
             const BounceWithConnectionResult bounceResult{
-                Detail::SampleBounceWithConnection(material, bounceIsect, config, bounceState, scene, rng)};
+                [&]
+                {
+                    RESTIR_BUFFER_METRIC_SCOPE(provider, Metrics::kSubMetrics.ValuesBuf, kBsdfSampleSlot);
+                    return Detail::SampleBounceWithConnection(material, bounceIsect, config, bounceState, scene, rng);
+                }()};
             const std::optional<BsdfBounceConnection> bsdfConnection{
                 std::holds_alternative<BsdfBounceConnection>(bounceResult)
                     ? std::make_optional(std::get<BsdfBounceConnection>(bounceResult))
                     : std::nullopt};
-            totalRadiance += throughput * directLight->Li(bounceIsect, scene, rng, lambda, provider, bsdfConnection,
-                                                          {callId.id + callId.stride, callId.stride});
+            {
+                RESTIR_BUFFER_METRIC_SCOPE(provider, Metrics::kSubMetrics.ValuesBuf, kDirectLightSlot);
+                totalRadiance += throughput * directLight->Li(bounceIsect, scene, rng, lambda, provider, bsdfConnection,
+                                                              {callId.id + callId.stride, callId.stride});
+            }
 
             if (!std::holds_alternative<BsdfBounceConnection>(bounceResult))
             {

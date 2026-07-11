@@ -35,6 +35,14 @@ namespace Restir
     {
         bool                               Enable{false};
         std::vector<DebugOverlayTextEntry> Entries{};
+#if METRICS_ENABLED
+        // Independent toggle for the per-pass timing breakdown (bar chart of
+        // each pass's share of the session's cumulative render time, plus
+        // "Other" for time outside the pipeline, e.g. scene construction).
+        // Can be enabled without `Enable`. Reuses kPassSumTimingOutputName
+        // (already accumulated for the "Total:" stat below).
+        bool EnableProfiling{false};
+#endif
     };
 
     class DebugOverlayPass final : public RenderPass
@@ -80,6 +88,11 @@ namespace Restir
         void _drawText(gsl::span<GfVec4f> fb, int w, int h, int x, int y, std::string_view text, GfVec4f color,
                        int scale = 1);
         void _drawChar(gsl::span<GfVec4f> fb, int w, int h, int x, int y, char c, GfVec4f color, int scale);
+#if METRICS_ENABLED
+        void _drawBar(gsl::span<GfVec4f> fb, int w, int h, int x, int y, int barWidth, int barHeight, GfVec4f color);
+        void _drawProfilingOverlay(RenderContext &ctx, gsl::span<GfVec4f> fb, int bufW, int bufH, int visMinX,
+                                   int visMinY, int visW, int visH);
+#endif
 
         Config _config{};
     };

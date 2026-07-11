@@ -181,7 +181,7 @@ namespace Restir
         passSpecs.push_back(Detail::MakePassSpec<PathTracePass>(settings.PathTrace, settings.MaxDepth));
         passSpecs.push_back(Detail::MakeAccumulationPassSpec(settings.UseGpu, settings.Denoiser.EnableFireflyFilter));
 #if DEBUG_ENABLED
-        if (settings.DebugOverlay.Enable)
+        if (settings.DebugOverlay.Enable || settings.DebugOverlay.EnableProfiling)
         {
             auto cfg{settings.DebugOverlay};
             cfg.Entries.push_back(DebugOverlayTextEntry{.Text = "PathTracer"});
@@ -203,7 +203,7 @@ namespace Restir
             passSpecs.push_back(Detail::MakePassSpec<UpscalePass>(settings.OutputNames));
         }
 #if DEBUG_ENABLED
-        if (settings.DebugOverlay.Enable)
+        if (settings.DebugOverlay.Enable || settings.DebugOverlay.EnableProfiling)
         {
             auto cfg{settings.DebugOverlay};
             cfg.Entries.push_back(DebugOverlayTextEntry{.Text = "PathTracer"});
@@ -232,7 +232,7 @@ namespace Restir
             passSpecs.push_back(Detail::MakePassSpec<UpscalePass>(settings.OutputNames));
         }
 #if DEBUG_ENABLED
-        if (settings.DebugOverlay.Enable)
+        if (settings.DebugOverlay.Enable || settings.DebugOverlay.EnableProfiling)
         {
             auto cfg{settings.DebugOverlay};
             cfg.Entries.push_back(DebugOverlayTextEntry{.Text = "PathTracerPost"});

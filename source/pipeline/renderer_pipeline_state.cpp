@@ -67,6 +67,9 @@ namespace Restir
                 .DebugOverlay =
                     DebugOverlayPass::Config{
                         .Enable = Get<bool>(v, HdRestirRenderSettingsTokens->debugOverlay, false),
+#if METRICS_ENABLED
+                        .EnableProfiling = Get<bool>(v, HdRestirRenderSettingsTokens->profileOverlay, false),
+#endif
                     },
 #endif
             };

@@ -4,8 +4,10 @@
 
 #include "render_context.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <string>
 
 PXR_NAMESPACE_USING_DIRECTIVE
@@ -156,10 +158,17 @@ namespace Restir
 
     void DebugOverlayPass::_execute(RenderContext &ctx)
     {
+#if METRICS_ENABLED
+        if (!_config.Enable && !_config.EnableProfiling)
+        {
+            return;
+        }
+#else
         if (!_config.Enable)
         {
             return;
         }
+#endif
 
         DBG_ASSERT(ctx.buffers.Has(kColorOutputName), "DebugOverlayPass requires Color buffer");
 
@@ -176,6 +185,18 @@ namespace Restir
         const int visW{ctx.frame.visibleMaxX - visMinX};
         const int visH{ctx.frame.visibleMaxY - visMinY};
 
+#if METRICS_ENABLED
+        if (_config.EnableProfiling)
+        {
+            _drawProfilingOverlay(ctx, fb, bufW, bufH, visMinX, visMinY, visW, visH);
+        }
+#endif
+
+        if (!_config.Enable)
+        {
+            return;
+        }
+
         // The Hydra AOV buffer is displayed by usdview with y=0 at the GL bottom,
         // so small buffer-y values appear at the visual bottom and large values at
         // the visual top. The anchor y passed to _drawText/_drawChar is the
@@ -188,13 +209,22 @@ namespace Restir
         constexpr int builtinLineH{8 * builtinScale + 4};
         const GfVec4f white{1.0f, 1.0f, 1.0f, 1.0f};
 
-        // Sum of all pass timings across every rendered frame so far.
+        // Sum of all TOP-LEVEL (parent == Metrics::kMetricNoParent) pass timings across
+        // every rendered frame so far — a pass's own recorded time already
+        // includes every phase nested under it, so summing every entry
+        // (including nested phases) would double/triple count.
         float sumMs{0.0f};
-        if (ctx.buffers.Has(kPassSumTimingOutputName))
+        if (ctx.buffers.Has(Metrics::kMetricSumTimingOutputName) && ctx.buffers.Has(Metrics::kMetricParentOutputName))
         {
-            for (const float ms : ctx.buf<float>(kPassSumTimingOutputName))
+            const auto        sums{ctx.buf<float>(Metrics::kMetricSumTimingOutputName)};
+            const auto        parents{ctx.buf<std::size_t>(Metrics::kMetricParentOutputName)};
+            const std::size_t rootCount{std::min(sums.size(), parents.size())};
+            for (std::size_t i{0}; i < rootCount; ++i)
             {
-                sumMs += ms;
+                if (parents[i] == Metrics::kMetricNoParent)
+                {
+                    sumMs += sums[i];
+                }
             }
         }
         const float meanMs{sumMs / static_cast<float>(ctx.frameIndex + 1)};
@@ -288,6 +318,176 @@ namespace Restir
             }
         }
     }
+
+#if METRICS_ENABLED
+    void DebugOverlayPass::_drawBar(gsl::span<GfVec4f> fb, int w, int h, int x, int y, int barWidth, int barHeight,
+                                    GfVec4f color)
+    {
+        for (int row{0}; row < barHeight; ++row)
+        {
+            const int py{y + row};
+            if (py < 0 || py >= h)
+            {
+                continue;
+            }
+            for (int col{0}; col < barWidth; ++col)
+            {
+                const int px{x + col};
+                if (px < 0 || px >= w)
+                {
+                    continue;
+                }
+                const auto pidx{static_cast<std::size_t>(py) * static_cast<std::size_t>(w) +
+                                static_cast<std::size_t>(px)};
+                fb[pidx] = color;
+            }
+        }
+    }
+
+    // Bar chart of the render-time tree recorded via Metrics::ScopedMetricTimer/
+    // Metrics::RecordMetric (core/metrics_on_buffers.h): each pass is a root entry
+    // (parent == Metrics::kMetricNoParent); passes and integrators nest their own
+    // phase/sub-phase timings arbitrarily deep under their own entry. Each
+    // bar is a percentage of ITS OWN PARENT's total (root passes are a
+    // percentage of the grand pipeline total), and gets progressively
+    // smaller/more indented with depth. Pipeline-only — usdview's own
+    // frame-time readout already shows the grand total, so comparing the two
+    // is enough to spot cost living outside any pass (e.g. scene
+    // construction) without tracking it here too.
+    void DebugOverlayPass::_drawProfilingOverlay(RenderContext &ctx, gsl::span<GfVec4f> fb, int bufW, int bufH,
+                                                 int visMinX, int visMinY, int visW, int visH)
+    {
+        constexpr int margin{16};
+        constexpr int maxRowScale{20};
+        constexpr int minRowScale{1};
+        constexpr int barGap{4};  // gap between a label and its bar
+        constexpr int rowGap{10}; // gap between one row's bar and the next row's label
+        const GfVec4f white{1.0f, 1.0f, 1.0f, 1.0f};
+        const GfVec4f depthColors[]{
+            {0.2f, 0.8f, 0.3f, 1.0f},
+            {0.9f, 0.6f, 0.15f, 1.0f},
+            {0.3f, 0.6f, 0.9f, 1.0f},
+            {0.8f, 0.3f, 0.7f, 1.0f},
+        };
+
+        const int x{visMinX + margin};
+
+        const auto barHeightAtScale = [](int scale) { return std::max(4, scale * 2); };
+        const auto rowHAtScale      = [&](int scale) { return 8 * scale + barGap + barHeightAtScale(scale) + rowGap; };
+        const auto colorAtDepth     = [&](int depth) -> const GfVec4f &
+        { return depthColors[std::min<std::size_t>(static_cast<std::size_t>(depth), 3)]; };
+
+        const bool haveSums{ctx.buffers.Has(Metrics::kMetricSumTimingOutputName)};
+        const auto sumMs{haveSums ? ctx.buf<float>(Metrics::kMetricSumTimingOutputName) : gsl::span<float>{}};
+        // Metrics::kMetricNameOutputName/Metrics::kMetricParentOutputName are recorded fresh
+        // every frame by Metrics::ScopedMetricTimer/Metrics::RecordMetric, in the same index
+        // order as Metrics::kMetricSumTimingOutputName — stable across frames since
+        // the pipeline's pass/phase structure doesn't change frame to frame,
+        // so this frame's names/parents correctly label the cumulative sums.
+        const bool        haveNames{ctx.buffers.Has(Metrics::kMetricNameOutputName)};
+        const auto        names{haveNames ? ctx.buf<Metrics::MetricNameEntry>(Metrics::kMetricNameOutputName)
+                                          : gsl::span<Metrics::MetricNameEntry>{}};
+        const bool        haveParents{ctx.buffers.Has(Metrics::kMetricParentOutputName)};
+        const auto        parents{haveParents ? ctx.buf<std::size_t>(Metrics::kMetricParentOutputName)
+                                              : gsl::span<std::size_t>{}};
+        const std::size_t count{std::min({sumMs.size(), names.size(), parents.size()})};
+
+        float rootTotalMs{0.0f};
+        for (std::size_t i{0}; i < count; ++i)
+        {
+            if (parents[i] == Metrics::kMetricNoParent)
+            {
+                rootTotalMs += sumMs[i];
+            }
+        }
+
+        if (rootTotalMs <= 0.0f)
+        {
+            _drawText(fb, bufW, bufH, x, visMinY + margin, "Profiling: no data yet", white, minRowScale);
+            return;
+        }
+
+        // Pass 1: gather row count / max depth / longest formatted label, so
+        // a single scale (uniform across every row — only indentation grows
+        // with depth) can be picked such that the whole chart's bounding box
+        // (maxDepth indents + longest label wide, rowCount rows tall) fits
+        // within roughly a quarter of the visible screen area (half its
+        // width times half its height).
+        int                                   rowCount{0};
+        int                                   maxDepth{0};
+        int                                   maxLabelLen{0};
+        std::function<void(std::size_t, int)> gather = [&](std::size_t parentIdx, int depth)
+        {
+            for (std::size_t i{0}; i < count; ++i)
+            {
+                if (parents[i] != parentIdx)
+                {
+                    continue;
+                }
+                ++rowCount;
+                maxDepth = std::max(maxDepth, depth);
+                char      label[64];
+                const int len{std::snprintf(label, sizeof(label), "%.*s 100%%",
+                                            static_cast<int>(sizeof(Metrics::MetricNameEntry::Name)), names[i].Name)};
+                maxLabelLen = std::max(maxLabelLen, len);
+                gather(i, depth + 1);
+            }
+        };
+        gather(Metrics::kMetricNoParent, 0);
+
+        const int targetW{std::max(32, visW / 2 - margin)};
+        const int targetH{std::max(32, visH / 2 - margin)};
+        int       scale{maxRowScale};
+        while (scale > minRowScale)
+        {
+            const int totalH{rowCount * rowHAtScale(scale)};
+            const int totalW{(maxDepth * 2 + maxLabelLen) * 8 * scale};
+            if (totalH <= targetH && totalW <= targetW)
+            {
+                break;
+            }
+            --scale;
+        }
+
+        const int indentStep{2 * 8 * scale};
+        const int barHeight{barHeightAtScale(scale)};
+        const int rowH{rowHAtScale(scale)};
+        const int barMaxWidthBase{targetW};
+
+        int y{visMinY + margin + rowCount * rowH - rowH};
+
+        // Pass 2: draw depth-first, each entry's bar as a percentage of ITS
+        // OWN PARENT's total.
+        std::function<void(std::size_t, float, int)> draw = [&](std::size_t parentIdx, float parentTotalMs, int depth)
+        {
+            for (std::size_t i{0}; i < count; ++i)
+            {
+                if (parents[i] != parentIdx)
+                {
+                    continue;
+                }
+
+                const int   indent{depth * indentStep};
+                const int   barMaxWidth{std::max(32, barMaxWidthBase - indent)};
+                const float pct{parentTotalMs > 0.0f ? 100.0f * sumMs[i] / parentTotalMs : 0.0f};
+
+                char label[64];
+                std::snprintf(label, sizeof(label), "%.*s %d%%",
+                              static_cast<int>(sizeof(Metrics::MetricNameEntry::Name)), names[i].Name,
+                              static_cast<int>(pct + 0.5f));
+                _drawText(fb, bufW, bufH, x + indent, y, label, white, scale);
+
+                const int barY{y - barGap - barHeight};
+                const int barW{std::clamp(static_cast<int>(barMaxWidth * (pct / 100.0f)), 0, barMaxWidth)};
+                _drawBar(fb, bufW, bufH, x + indent, barY, barW, barHeight, colorAtDepth(depth));
+                y -= rowH;
+
+                draw(i, sumMs[i], depth + 1);
+            }
+        };
+        draw(Metrics::kMetricNoParent, rootTotalMs, 0);
+    }
+#endif // METRICS_ENABLED
 
 } // namespace Restir
 

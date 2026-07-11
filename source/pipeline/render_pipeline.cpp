@@ -1,5 +1,9 @@
 #include "render_pipeline.h"
 
+#if METRICS_ENABLED
+#include "metrics_on_buffers.h"
+#endif
+
 namespace Restir
 {
 
@@ -29,6 +33,9 @@ namespace Restir
         {
             p->Execute(ctx);
         }
+#if METRICS_ENABLED
+        Metrics::AccumulateMetricSums(ctx.buffers);
+#endif
         ctx.buffers.ExtractPersistentTo(_persistentStore);
     }
 

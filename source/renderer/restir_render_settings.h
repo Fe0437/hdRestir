@@ -49,7 +49,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
         ((physicalSkyEnable, "restir:sky:enable"))((                                                                       \
             physicalSkyTime,                                                                                               \
             "restir:sky:timeOfDay")) /* --- Debug ----------------------------------------------------------------- */     \
-        ((debugOverlay, "restir:debug:overlay"))
+        ((debugOverlay, "restir:debug:overlay"))((profileOverlay, "restir:debug:profileOverlay"))
 
 TF_DECLARE_PUBLIC_TOKENS(HdRestirRenderSettingsTokens, HD_RESTIR_RENDER_SETTINGS_TOKENS);
 
@@ -101,8 +101,11 @@ TF_DECLARE_PUBLIC_TOKENS(HdRestirRenderSettingsTokens, HD_RESTIR_RENDER_SETTINGS
         SpecT{"ISO", HdRestirRenderSettingsTokens->iso, VtValue(100.0f), false},                                       \
         SpecT{"Shutter Speed", HdRestirRenderSettingsTokens->shutterSpeed, VtValue(0.02f), false},                     \
         SpecT{"Enable Physical Sky", HdRestirRenderSettingsTokens->physicalSkyEnable, VtValue(false), false},          \
-        SpecT{"Physical Sky Time of Day", HdRestirRenderSettingsTokens->physicalSkyTime, VtValue(12.0f), false}, SpecT \
+        SpecT{"Physical Sky Time of Day", HdRestirRenderSettingsTokens->physicalSkyTime, VtValue(12.0f), false},       \
+        SpecT{"Debug Overlay (only working in Debug Mode build)", HdRestirRenderSettingsTokens->debugOverlay,          \
+              VtValue(false), false},                                                                                  \
+        SpecT                                                                                                          \
     {                                                                                                                  \
-        "Debug Overlay (only working in Debug Mode build)", HdRestirRenderSettingsTokens->debugOverlay,                \
-            VtValue(false), false                                                                                      \
+        "Profile Overlay (per-pass timing breakdown, only working in Debug Mode build)",                               \
+            HdRestirRenderSettingsTokens->profileOverlay, VtValue(false), false                                        \
     }

@@ -29,6 +29,17 @@ endif()
 option(DEBUG_ENABLED  "Enable HdRestir debug macros (asserts, logs, named objects)" ${_debug_default})
 option(METRICS_ENABLED "Enable HdRestir runtime metrics (variance logging, counters)" ${_debug_default})
 
+# DEBUG_ENABLED code (e.g. DebugOverlayPass's profiling breakdown) reads
+# METRICS_ENABLED-gated data (kPassSumTimingOutputName, DebugOverlayConfig::
+# EnableProfiling, etc.) unconditionally, so DEBUG_ENABLED implies
+# METRICS_ENABLED — enforced here rather than left as a configuration a user
+# could get wrong. METRICS_ENABLED alone (without DEBUG_ENABLED) stays valid,
+# e.g. for Release builds that still want variance/perf metrics.
+if(DEBUG_ENABLED AND NOT METRICS_ENABLED)
+    message(STATUS "[HdRestir] DEBUG_ENABLED requires METRICS_ENABLED — enabling it")
+    set(METRICS_ENABLED ON CACHE BOOL "Enable HdRestir runtime metrics (variance logging, counters)" FORCE)
+endif()
+
 # GPU-accelerated ReSTIR passes via the LightRHI submodule (external/rhi).
 # LightRHI is built from C++23 modules, which require a compiler with
 # clang-scan-deps. Fail at configure time when the requested GPU toolchain is

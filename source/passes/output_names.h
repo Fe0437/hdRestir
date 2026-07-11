@@ -1,16 +1,15 @@
 #pragma once
 
+#include "metrics_on_buffers.h"
+
 #include <string_view>
 
 namespace Restir
 {
 
     inline constexpr std::string_view kGBufferOutputName{"GBuffer"};
-#if DEBUG_ENABLED
-    inline constexpr std::string_view kPassTimingOutputName{"PassTiming"};
-    inline constexpr std::string_view kPassSumTimingOutputName{"PassSumTiming"};
-#endif
 #if METRICS_ENABLED
+
     inline constexpr std::string_view kVarianceOutputName{"Variance"};
 
     struct VarianceStats

@@ -24,8 +24,7 @@ namespace Restir
         // Creation is not thread-safe; call only during single-threaded preparation.
         [[nodiscard]] virtual void *GetOrCreatePersistent(std::string_view name, std::size_t stride) = 0;
 
-        // Transient — recreated every frame. Call only during single-threaded setup.
-        [[nodiscard]] virtual void *Add(std::string_view name, std::size_t stride) = 0;
+        [[nodiscard]] virtual void *Add(std::string_view name, std::size_t stride, std::size_t count = 0) = 0;
     };
 
 } // namespace Restir

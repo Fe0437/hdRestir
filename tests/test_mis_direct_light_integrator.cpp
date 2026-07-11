@@ -146,7 +146,7 @@ namespace
         {
             throw std::logic_error{"unexpected"};
         }
-        [[nodiscard]] void *Add(std::string_view, std::size_t) override
+        [[nodiscard]] void *Add(std::string_view, std::size_t, std::size_t) override
         {
             throw std::logic_error{"unexpected"};
         }

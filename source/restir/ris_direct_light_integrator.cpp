@@ -4,6 +4,7 @@
 #include "debug.h"
 #include "frame_buffer.h"
 #include "lighting_core/uniform_light_sampler.h"
+#include "metrics_on_buffers.h"
 #include "output_names.h"
 #include "random_index.h"
 #include "reservoir.h"
@@ -21,6 +22,15 @@ namespace Restir
 
     namespace
     {
+
+#if METRICS_ENABLED
+        constexpr std::string_view kNEECandidatesBuf{"NEECandidates"};
+        constexpr std::string_view kBSDFCandidatesBuf{"BSDFCandidates"};
+        constexpr std::string_view kResamplingBuf{"Resampling"};
+        constexpr std::size_t      kNEECandidatesSlot{0};
+        constexpr std::size_t      kBSDFCandidatesSlot{1};
+        constexpr std::size_t      kResamplingSlot{2};
+#endif
 
         class RisDirectLightIntegratorFactory final : public IDirectLightIntegratorFactory, public IBufferStager
         {
@@ -50,6 +60,10 @@ namespace Restir
                     static_cast<void>(provider.GetOrCreatePersistent(
                         kReservoirBufferName, sizeof(WeightedReservoir<RisDirectLightIntegrator::Candidate>)));
                 }
+#if METRICS_ENABLED
+                Metrics::DeclareSubMetrics(provider, {kNEECandidatesBuf, kBSDFCandidatesBuf, kResamplingBuf},
+                                           Metrics::kSubMetricsDetail);
+#endif
             }
 
           private:
@@ -85,12 +99,24 @@ namespace Restir
         const int        nBsdf{std::max(0, _candidateCount - nNeeSampler - nNeeSky)};
         SamplingStrategy samplingStrategy{*_sampler, nNeeSampler, nNeeSky, nBsdf, _skipVisibility};
 
-        auto       allCandidates{_generateNEECandidates(isect, scene, rng, samplingStrategy)};
-        const auto bsdfSamples{_generateBSDFSamplingCandidates(isect, scene, rng, bsdfConnection, samplingStrategy)};
+        auto       allCandidates{[&]
+                                 {
+                               RESTIR_BUFFER_METRIC_SCOPE(provider, Metrics::kSubMetricsDetail.ValuesBuf,
+                                                          kNEECandidatesSlot);
+                               return _generateNEECandidates(isect, scene, rng, samplingStrategy);
+                                 }()};
+        const auto bsdfSamples{
+            [&]
+            {
+                RESTIR_BUFFER_METRIC_SCOPE(provider, Metrics::kSubMetricsDetail.ValuesBuf, kBSDFCandidatesSlot);
+                return _generateBSDFSamplingCandidates(isect, scene, rng, bsdfConnection, samplingStrategy);
+            }()};
         allCandidates.insert(allCandidates.end(), std::make_move_iterator(bsdfSamples.begin()),
                              std::make_move_iterator(bsdfSamples.end()));
 
         DBG_ASSERT(!allCandidates.empty(), "RIS expected at least one candidate");
+
+        RESTIR_BUFFER_METRIC_SCOPE(provider, Metrics::kSubMetricsDetail.ValuesBuf, kResamplingSlot);
 
         if (_useReservoir && callId.id < callId.stride)
         {

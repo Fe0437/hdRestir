@@ -18,7 +18,7 @@ namespace Restir
         float RouletteAggressiveness{1.0f};
     };
 
-    class PathIntegrator final : public IIntegrator
+    class PathIntegrator final : public IIntegrator, public IBufferStager
     {
       public:
         explicit PathIntegrator(NotNullUniquePtr<IDirectLightIntegratorFactory> &&factory,
@@ -30,8 +30,10 @@ namespace Restir
 
         [[nodiscard]] IBufferStager *GetBufferStager() override
         {
-            return _factory->GetBufferStager();
+            return this;
         }
+
+        void PrepareBuffers(IBufferProvider &provider, const IScene &scene) override;
 
         void SetSettings(PathTracePassSettings settings)
         {

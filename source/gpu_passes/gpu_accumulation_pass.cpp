@@ -24,19 +24,6 @@ namespace Restir
         DBG_ASSERT(ctx.buffers.Has(kColorOutputName), "Color must be present (produced by PathTracePass)");
         auto fb{ctx.buf<GfVec4f>(kColorOutputName)};
 
-#if DEBUG_ENABLED
-        if (ctx.buffers.Has(kPassTimingOutputName))
-        {
-            auto timings{ctx.buf<float>(kPassTimingOutputName)};
-            ctx.buffers.AddOrGetPersistent(kPassSumTimingOutputName, sizeof(float), timings.size());
-            auto sumData{ctx.buf<float>(kPassSumTimingOutputName)};
-            for (std::size_t i = 0; i < timings.size(); ++i)
-            {
-                sumData[i] += timings[i];
-            }
-        }
-#endif
-
         // Persistent running-sum state, injected/extracted by RenderPipeline
         // alongside every other pass's persistent buffers — nothing here
         // survives a camera move or scene edit except through this store,

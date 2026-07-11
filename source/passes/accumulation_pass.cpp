@@ -78,19 +78,6 @@ namespace Restir
         const int   sampleCount{ctx.frameIndex + 1};
         const float invN{1.0f / static_cast<float>(sampleCount)};
 
-#if DEBUG_ENABLED
-        if (ctx.buffers.Has(kPassTimingOutputName))
-        {
-            auto timings{ctx.buf<float>(kPassTimingOutputName)};
-            ctx.buffers.AddOrGetPersistent(kPassSumTimingOutputName, sizeof(float), timings.size());
-            auto sumData{ctx.buf<float>(kPassSumTimingOutputName)};
-            for (std::size_t i = 0; i < timings.size(); ++i)
-            {
-                sumData[i] += timings[i];
-            }
-        }
-#endif
-
         ctx.buffers.AddOrGetPersistent(kAccumColorBuf, sizeof(GfVec4f), count);
         auto accum{ctx.buf<GfVec4f>(kAccumColorBuf)};
 
