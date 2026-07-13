@@ -1,10 +1,15 @@
 # On Windows, `just` defaults to running recipes through `sh`, which usually
 # isn't on PATH in a normal terminal ("could not find the shell `sh`"). Fall
-# back to the native cmd.exe. This setting only affects Windows; Mac/Linux keep
+# back to a native shell. This setting only affects Windows; Mac/Linux keep
 # their default sh. make.bat overrides this back to sh when sh is available.
 # All recipes are shell-agnostic (plain command lines / Python), so they behave
-# identically under cmd.exe, sh, or bash.
-set windows-shell := ["cmd.exe", "/c"]
+# identically under PowerShell, sh, or bash.
+#
+# PowerShell, not cmd.exe: `just` hands the recipe line to the shell as a single
+# argument, and cmd.exe does not strip the quotes around an argument in it — so
+# `workflow.py launch "{{scene}}"` reached Python with the quotes still in argv,
+# and the scene path never resolved. PowerShell parses the line correctly.
+set windows-shell := ["powershell.exe", "-NoProfile", "-Command"]
 
 python := if os_family() == "windows" { "python" } else { "python3" }
 

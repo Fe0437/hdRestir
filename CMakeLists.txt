@@ -121,6 +121,15 @@ if(GPU_ENABLED)
     add_subdirectory(external/rhi)
     include("${CMAKE_CURRENT_SOURCE_DIR}/external/rhi/cmake/Shaders.cmake")
 
+    # Windows has no RPATH: a DLL is found next to the loading .exe or on PATH,
+    # nowhere else. Put both RHI DLLs beside the HdRestir plugin in the build
+    # root (which workflow.py's _usd_env already puts on PATH) instead of
+    # leaving them in external/rhi/, where nothing would ever find them.
+    if(WIN32)
+        set_target_properties(LightRHI LightRHIBackend PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    endif()
+
     if(NOT LIGHT_RHI_SLANG_AVAILABLE)
         message(FATAL_ERROR "[HdRestir] GPU requires slangc. Put slangc on PATH, set SLANG_DIR, or set SLANGC.")
     endif()
@@ -209,6 +218,8 @@ if(GPU_ENABLED)
     target_include_directories(HdRestirGpu PRIVATE ${SOURCE_INCLUDE_DIRS})
     target_compile_definitions(HdRestirGpu PRIVATE
         GPU_ENABLED=1
+        $<$<BOOL:${DEBUG_ENABLED}>:DEBUG_ENABLED=1>
+        $<$<NOT:$<BOOL:${DEBUG_ENABLED}>>:DEBUG_ENABLED=0>
         $<$<BOOL:${METRICS_ENABLED}>:METRICS_ENABLED=1>
         $<$<NOT:$<BOOL:${METRICS_ENABLED}>>:METRICS_ENABLED=0>
     )

@@ -23,6 +23,17 @@ foreach(_test IN ITEMS test_camera test_frame_buffer test_rng test_split_screen 
     )
     if(GPU_ENABLED)
         target_link_libraries(${_test} PRIVATE HdRestirGpu)
+        # These exes live in build/tests/, so the backend DLL in the build root
+        # is not on their search path. Without this, every test dies at startup
+        # with STATUS_DLL_NOT_FOUND (0xc0000135) behind a modal Windows dialog.
+        if(WIN32)
+            add_custom_command(TARGET ${_test} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "$<TARGET_FILE:LightRHIBackend>" "$<TARGET_FILE_DIR:${_test}>"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "$<TARGET_FILE:LightRHI>" "$<TARGET_FILE_DIR:${_test}>"
+                VERBATIM)
+        endif()
     endif()
     add_test(NAME ${_test} COMMAND ${_test})
     set_tests_properties(${_test} PROPERTIES LABELS "smoke")

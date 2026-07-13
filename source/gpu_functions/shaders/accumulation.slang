@@ -25,7 +25,7 @@ struct Constants
     uint32_t metricsEnabled;
 };
 
-[[vk::binding(30, 0)]] ConstantBuffer<Constants> g_constants : register(b30);
+[[vk::push_constant]] ConstantBuffer<Constants> g_constants : register(b30);
 
 float Luminance(float4 c)
 {

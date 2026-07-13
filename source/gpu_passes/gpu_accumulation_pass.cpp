@@ -14,6 +14,12 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace Restir
 {
+    namespace
+    {
+        // The kernel's TU is built -fno-rtti and so cannot name GfVec4f at all
+        // (see gpu_accumulation_kernel.h); it takes the pixel buffers as bytes.
+        static_assert(sizeof(GfVec4f) == Gpu::kBytesPerPixel);
+    } // namespace
 
     void GpuAccumulationPass::_execute(RenderContext &ctx)
     {
@@ -39,8 +45,8 @@ namespace Restir
         auto lumSum{ctx.buf<float>(kGpuAccumLumSumBuf)};
         auto lumSumSq{ctx.buf<float>(kGpuAccumLumSumSqBuf)};
 
-        _kernel.RunFrame(fb, accum, width, height, static_cast<std::uint32_t>(ctx.frameIndex), _enableFireflyFilter,
-                         lumSum, lumSumSq);
+        _kernel.RunFrame(gsl::as_writable_bytes(fb), gsl::as_writable_bytes(accum), width, height, static_cast<std::uint32_t>(ctx.frameIndex),
+                         _enableFireflyFilter, lumSum, lumSumSq);
 
         const int sampleCount{ctx.frameIndex + 1};
         if (sampleCount >= 2)
@@ -73,7 +79,8 @@ namespace Restir
             };
         }
 #else
-        _kernel.RunFrame(fb, accum, width, height, static_cast<std::uint32_t>(ctx.frameIndex), _enableFireflyFilter);
+        _kernel.RunFrame(gsl::as_writable_bytes(fb), gsl::as_writable_bytes(accum), width, height, static_cast<std::uint32_t>(ctx.frameIndex),
+                         _enableFireflyFilter);
 #endif
     }
 

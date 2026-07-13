@@ -50,8 +50,6 @@ namespace Restir::Gpu
             std::uint32_t metricsEnabled;
         };
 
-        constexpr std::size_t kBytesPerPixel{4 * sizeof(float)};
-
         [[nodiscard]] std::string _shaderArtifactPath(const std::string &name)
         {
             return std::string(GPU_SHADER_DIR) + "/" + GPU_SHADER_BACKEND_DIR + "/" + name + ".generated" +
@@ -72,7 +70,9 @@ namespace Restir::Gpu
             return bytes;
         }
 
-        [[nodiscard]] rhi::ShaderDesc _loadShaderArtifact(const std::string &name, std::string_view entryPoint,
+        // `source` / `entryPoint` name the artifact the way
+        // external/rhi/tools/generate_shader_registry.py names it: <source>_<entryPoint>.
+        [[nodiscard]] rhi::ShaderDesc _loadShaderArtifact(std::string_view source, std::string_view entryPoint,
                                                           rhi::ShaderStage stage)
         {
             // Process-wide cache: one HdRestir process can host multiple
@@ -82,6 +82,7 @@ namespace Restir::Gpu
             static std::mutex                                              cacheMutex;
             static std::unordered_map<std::string, std::vector<std::byte>> cache;
 
+            const std::string name{std::string{source} + "_" + std::string{entryPoint}};
             const std::string path{_shaderArtifactPath(name)};
 
             std::lock_guard<std::mutex> lock{cacheMutex};
@@ -93,11 +94,13 @@ namespace Restir::Gpu
             const auto &bytes{it->second};
 
             constexpr rhi::ShaderFormat format{GPU_SHADER_FORMAT};
+            const std::string_view backendEntryPoint{
+                format == rhi::ShaderFormat::Spirv ? std::string_view{"main"} : entryPoint};
 
             rhi::ShaderArtifactView artifact{
                 .Format     = format,
                 .Stage      = stage,
-                .EntryPoint = entryPoint,
+                .EntryPoint = backendEntryPoint,
                 .Data       = bytes,
             };
             auto desc{rhi::toShaderDesc(artifact)};
@@ -111,14 +114,14 @@ namespace Restir::Gpu
         // Slang itself — this mirrors external/rhi/tests/shader_artifact_loader.h.
         [[nodiscard]] rhi::ShaderDesc _loadAccumulationShader()
         {
-            return _loadShaderArtifact("accumulation_cs", "cs_main", rhi::ShaderStage::Compute);
+            return _loadShaderArtifact("accumulation", "cs_main", rhi::ShaderStage::Compute);
         }
 
     } // namespace
 
     struct AccumulationKernel::Impl
     {
-        std::unique_ptr<rhi::IDevice> _device;
+        rhi::SharedDevice             _device;
         rhi::PipelineHandle           _pipeline;
         rhi::BufferHandle             _colorIn;
         rhi::BufferHandle             _colorOut;
@@ -131,36 +134,32 @@ namespace Restir::Gpu
         bool              _metricsBuffersReady{false};
 #endif
 
-        void _releaseBuffers()
+        void _releaseBuffers(rhi::IDevice &device)
         {
-            if (!_device)
-            {
-                return;
-            }
             if (_colorIn.valid())
             {
-                _device->destroyBuffer(_colorIn);
+                device.destroyBuffer(_colorIn);
                 _colorIn = {};
             }
             if (_colorOut.valid())
             {
-                _device->destroyBuffer(_colorOut);
+                device.destroyBuffer(_colorOut);
                 _colorOut = {};
             }
             if (_accum.valid())
             {
-                _device->destroyBuffer(_accum);
+                device.destroyBuffer(_accum);
                 _accum = {};
             }
 #if METRICS_ENABLED
             if (_lumSum.valid())
             {
-                _device->destroyBuffer(_lumSum);
+                device.destroyBuffer(_lumSum);
                 _lumSum = {};
             }
             if (_lumSumSq.valid())
             {
-                _device->destroyBuffer(_lumSumSq);
+                device.destroyBuffer(_lumSumSq);
                 _lumSumSq = {};
             }
             _metricsBuffersReady = false;
@@ -176,44 +175,46 @@ namespace Restir::Gpu
                 return;
             }
 
-            _device = rhi::createDevice(rhi::DeviceDesc{
-                .EnableValidation = false,
+            _device = rhi::AcquireSharedDevice(rhi::DeviceDesc{
+                .EnableValidation = DEBUG_ENABLED != 0,
                 .AppName          = "HdRestir",
             });
+            auto lockedDevice = _device->Synchronize();
 
             const rhi::ComputePipelineDesc pipelineDesc{
-                .Shader          = _loadAccumulationShader(),
-                .ThreadGroupSize = {8, 8, 1}, // must match accumulation.slang's numthreads(8, 8, 1)
-                .DebugName       = "GpuAccumulationPass",
+                .Shader            = _loadAccumulationShader(),
+                .PushConstantBytes = static_cast<std::uint32_t>(sizeof(PushConstants)),
+                .ThreadGroupSize   = {8, 8, 1}, // must match accumulation.slang's numthreads(8, 8, 1)
+                .DebugName         = "GpuAccumulationPass",
             };
-            _pipeline = _device->createComputePipeline(pipelineDesc);
+            _pipeline = lockedDevice->createComputePipeline(pipelineDesc);
             assert(_pipeline.valid() && "Failed to create GpuAccumulationPass compute pipeline");
         }
 
-        void _ensureBuffers(std::uint32_t width, std::uint32_t height)
+        void _ensureBuffers(rhi::IDevice &device, std::uint32_t width, std::uint32_t height)
         {
             if (_bufferWidth == width && _bufferHeight == height && _colorIn.valid())
             {
                 return;
             }
 
-            _releaseBuffers();
+            _releaseBuffers(device);
 
             const std::uint64_t byteSize{static_cast<std::uint64_t>(width) * height * kBytesPerPixel};
 
-            _colorIn  = _device->createBuffer(rhi::BufferDesc{
+            _colorIn  = device.createBuffer(rhi::BufferDesc{
                 .Size       = byteSize,
                 .Usage      = rhi::BufferUsage::Storage | rhi::BufferUsage::DeviceAddress,
                 .MemoryType = rhi::MemoryType::CpuToGpu,
                 .DebugName  = "GpuAccumulationPass.colorIn",
             });
-            _colorOut = _device->createBuffer(rhi::BufferDesc{
+            _colorOut = device.createBuffer(rhi::BufferDesc{
                 .Size       = byteSize,
                 .Usage      = rhi::BufferUsage::Storage | rhi::BufferUsage::DeviceAddress,
                 .MemoryType = rhi::MemoryType::GpuToCpu,
                 .DebugName  = "GpuAccumulationPass.colorOut",
             });
-            _accum    = _device->createBuffer(rhi::BufferDesc{
+            _accum    = device.createBuffer(rhi::BufferDesc{
                 .Size       = byteSize,
                 .Usage      = rhi::BufferUsage::Storage | rhi::BufferUsage::DeviceAddress,
                 .MemoryType = rhi::MemoryType::CpuToGpu, // uploaded from and read back to the caller every frame
@@ -227,7 +228,7 @@ namespace Restir::Gpu
 #if METRICS_ENABLED
         // Lazily allocated — only when the caller first asks for metrics, so
         // the common (metrics-off) path never pays for them.
-        void _ensureMetricsBuffers()
+        void _ensureMetricsBuffers(rhi::IDevice &device)
         {
             if (_metricsBuffersReady)
             {
@@ -236,13 +237,13 @@ namespace Restir::Gpu
 
             const std::uint64_t byteSize{static_cast<std::uint64_t>(_bufferWidth) * _bufferHeight * sizeof(float)};
 
-            _lumSum   = _device->createBuffer(rhi::BufferDesc{
+            _lumSum   = device.createBuffer(rhi::BufferDesc{
                 .Size       = byteSize,
                 .Usage      = rhi::BufferUsage::Storage | rhi::BufferUsage::DeviceAddress,
                 .MemoryType = rhi::MemoryType::CpuToGpu, // read back into the caller's array every frame
                 .DebugName  = "GpuAccumulationPass.lumSum",
             });
-            _lumSumSq = _device->createBuffer(rhi::BufferDesc{
+            _lumSumSq = device.createBuffer(rhi::BufferDesc{
                 .Size       = byteSize,
                 .Usage      = rhi::BufferUsage::Storage | rhi::BufferUsage::DeviceAddress,
                 .MemoryType = rhi::MemoryType::CpuToGpu, // uploaded from and read back to the caller every frame
@@ -265,31 +266,28 @@ namespace Restir::Gpu
         {
             return;
         }
-        _impl->_releaseBuffers();
-        if (_impl->_device && _impl->_pipeline.valid())
+        if (!_impl->_device)
         {
-            _impl->_device->destroyPipeline(_impl->_pipeline);
+            return;
         }
-        if (_impl->_device)
-        {
-            _impl->_device->waitIdle();
-        }
+        auto lockedDevice = _impl->_device->Synchronize();
+        _impl->_releaseBuffers(*lockedDevice);
+        lockedDevice->destroyPipeline(_impl->_pipeline);
     }
 
 #if METRICS_ENABLED
-    void AccumulationKernel::RunFrame(gsl::span<pxr::GfVec4f> colorInOut, gsl::span<pxr::GfVec4f> accumInOut,
+    void AccumulationKernel::RunFrame(gsl::span<std::byte> colorInOut, gsl::span<std::byte> accumInOut,
                                       std::uint32_t width, std::uint32_t height, std::uint32_t frameIndex,
                                       bool fireflyEnable, gsl::span<float> lumSumInOut, gsl::span<float> lumSumSqInOut)
 #else
-    void AccumulationKernel::RunFrame(gsl::span<pxr::GfVec4f> colorInOut, gsl::span<pxr::GfVec4f> accumInOut,
+    void AccumulationKernel::RunFrame(gsl::span<std::byte> colorInOut, gsl::span<std::byte> accumInOut,
                                       std::uint32_t width, std::uint32_t height, std::uint32_t frameIndex,
                                       bool fireflyEnable)
 #endif
     {
         const std::size_t pixelCount{static_cast<std::size_t>(width) * height};
-        static_assert(sizeof(pxr::GfVec4f) == kBytesPerPixel);
-        Expects(colorInOut.size() == pixelCount);
-        Expects(accumInOut.size() == pixelCount);
+        Expects(colorInOut.size() == pixelCount * kBytesPerPixel);
+        Expects(accumInOut.size() == pixelCount * kBytesPerPixel);
 #if METRICS_ENABLED
         Expects(lumSumInOut.empty() == lumSumSqInOut.empty());
         Expects(lumSumInOut.empty() || lumSumInOut.size() == pixelCount);
@@ -297,9 +295,9 @@ namespace Restir::Gpu
 #endif
 
         _impl->_ensureDevice();
-        _impl->_ensureBuffers(width, height);
-
-        auto &device{*_impl->_device};
+        auto  lockedDevice = _impl->_device->Synchronize();
+        auto &device{*lockedDevice};
+        _impl->_ensureBuffers(device, width, height);
 
         const std::uint64_t byteSize{static_cast<std::uint64_t>(width) * height * kBytesPerPixel};
 
@@ -326,7 +324,7 @@ namespace Restir::Gpu
         const bool metricsEnable{!lumSumInOut.empty() && !lumSumSqInOut.empty()};
         if (metricsEnable)
         {
-            _impl->_ensureMetricsBuffers();
+            _impl->_ensureMetricsBuffers(device);
 
             const std::uint64_t lumByteSize{static_cast<std::uint64_t>(width) * height * sizeof(float)};
 
